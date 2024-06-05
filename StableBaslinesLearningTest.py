@@ -129,10 +129,10 @@ class CustomEnvironment(gymnasium.Env):
                 time.sleep(0.2)
 
         # display env continuously
-
+        '''
         self.display_colors()
         time.sleep(0.1)         # necessary  delay to regulate run speed
-
+        '''
         # TODO ensure the implementation of terminated and truncated is correct
         return self._create_observation(), reward, terminated, truncated, {'info': "Nothing"}
 
