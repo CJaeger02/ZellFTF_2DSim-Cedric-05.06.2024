@@ -1,0 +1,9 @@
+In dem Ordner zu einer Fabrik müssen folgende Dateien gespeichert sein:
+- Factory: Fabriklayout mit zugeordneten Typen der Factory Cells
+- Machine: Maschinen inkl. aller Eigenschaften
+- Product: Produkte inkl. aller Eigenschaften
+- AGVs inkl. aller Eigenschaften
+- Forklifts inkl. aller Eigenschaften
+- Transportbeziehungen zwischen den Maschinen (von wo nach wo mit der Weglänge)
+
+DATEIFORMAT?

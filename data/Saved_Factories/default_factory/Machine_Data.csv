@@ -1,0 +1,2 @@
+;ID;Name;Length;Width;X-Position;Y-Position;Input-Position;Output-Position;Input Products;Output Products; Processing Times; Input Buffer Sizes; Output Buffer Sizes;Input Loading Times; Output Loading Times; Upstream Machines/Warehouses;Downstream Machines/Warehouses
+0;0;default_machine;1;1;0;0;[0,0];[0,0];['default_product'];['default_product'];30;1;1;0;0;['W0'];['W0']
