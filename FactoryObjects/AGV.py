@@ -32,7 +32,7 @@ class AGV:
         self.loaded_product = None
         self.target_product = None
         self.coupling_master = None
-        self.agv_couple_count = 1
+        self.agv_couple_count = 0
         self.coupling_time_max = 2.0
         self.coupling_time = 0.0
         self.coupling_position = [3, 3]
@@ -77,6 +77,8 @@ class AGV:
         self.target_product = None
         self.pos_x = self.start_position[0]
         self.pos_y = self.start_position[1]
+        self.coupling_master = None
+        self.agv_couple_count = 0
 
         self.task_number = 0
         self.move_target = [self.pos_x, self.pos_y]  # relevant for is_moving() function
@@ -284,22 +286,13 @@ class AGV:
                 if agv.command == 'follow_master':      # necessary ?
                     slave_count += 1
         if self.agv_couple_count == slave_count:
-            # For RL AGVs become locked (delivery is now obligated)
+            # For RL AGVs become locked (coupling_process)
             for agv in self.factory.agvs:
                 if agv.coupling_master == self:
                     agv.is_free = False
             self.coupling_time += self.time_step
             if self.coupling_time >= self.coupling_time_max:
                 self.coupling_time = 0
-
-                '''arrived = 0          #should be caught by "if agv.command == 'follow_master':" above!
-                #time.sleep(0.0001) #mandatory since AGVs might slip through otherwise
-                for agv in self.factory.agvs:
-                    if agv != self and agv.coupling_master == self:
-                        if not agv.is_moving():
-                            arrived += 1
-                if arrived == slave_count:
-                    return True'''
                 return True
         return False
 
@@ -314,7 +307,7 @@ class AGV:
                     agv.coupling_master = None
             self.coupling_master = None
             self.coupled_size = [1, 1]
-            self.agv_couple_count = 1
+            self.agv_couple_count = 0
 
     def follow_master(self):
         if self.coupling_master is not None:
@@ -346,7 +339,7 @@ class AGV:
             return False
         return True
 
-    def free_from_coupling(self):
+    def free_from_coupling(self):   # CAUTION WHEN USING THIS - make sure the right task_number is assigned afterwards
         self.is_slave = False
         self.command = 'idle'
         self.status = 'idle'
@@ -354,7 +347,7 @@ class AGV:
         self.task_number = 0
         self.coupling_master = None
         self.coupled_size = [1, 1]
-        self.agv_couple_count = 1
+        self.agv_couple_count = 0
 
         self.task_number = 0
 

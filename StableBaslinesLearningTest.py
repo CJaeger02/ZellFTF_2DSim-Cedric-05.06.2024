@@ -7,6 +7,7 @@ import stable_baselines3 as sb
 import matplotlib
 import matplotlib.pyplot as plt
 import torch.cuda
+import torch as th
 
 # TODO threading for windows - so they don't crash
 import threading
@@ -79,6 +80,39 @@ class CustomEnvironment(gymnasium.Env):
         self.not_utilizing_agv_penalty = False
 
         self.last_episode = 0
+        self.show_result = False
+        self.plot_update = False
+
+        # plot_thread = threading.Thread(target=self.plot_threading)
+        # plot_thread.start()
+
+    def plot_threading(self):
+        plt.ion()  # Turn on interactive mode
+        plt.show()
+        # Keep the plot open and update if needed
+        while True:
+            plt.pause(0.1)  # Pause to allow interaction and updating
+            if self.plot_update:
+                plt.figure(self.render_window)
+                if self.show_result:
+                    plt.clf()
+                    plt.title('Result')
+                else:
+                    plt.clf()
+                    plt.title('Running...')
+                plt.xlabel('Time in ' + str(self.time_step) + 's Steps')
+                plt.ylabel('Products')
+                plt.plot(self.end_product_count, label='Finished Products', color='b', linewidth=3, linestyle=':')
+                plt.plot(self.reward_history, label='Reward', color='g', linewidth=2)
+                plt.legend()
+                plt.pause(0.01)  # pause required for constructor
+                if is_ipython:
+                    if not self.show_result:
+                        display.display(plt.gcf())
+                        display.clear_output(wait=True)
+                    else:
+                        display.display(plt.gcf())
+                self.plot_update = False
 
     def reset(self, seed=None, options=None):
         self.factory.reset()
@@ -96,6 +130,8 @@ class CustomEnvironment(gymnasium.Env):
         self.coupling_master_at.clear()
         self.coupling_master_at.extend([None] * self.n_agv_commands)
         self.agv_positioning_at = [[1 for _ in range(2)] for _ in range(self.n_agv_commands)]
+
+        print("RESET")
 
         return self._create_observation(), {'info': "Nothing"}
 
@@ -120,21 +156,44 @@ class CustomEnvironment(gymnasium.Env):
         reward = self._get_reward()
         self._collect_train_data(reward)
         # plot training within an episode
-        if self.step_counter % (128*2*2048) == 0:   # math.inf => (almost) never triggered
+        if self.step_counter % math.inf == 0:   # math.inf => (almost) never triggered
             if self.step_counter != 0:
-                self.render_window += 1
-                self._plot_training(True, window_number=str(self.render_window))
-                plt.ioff()
+                # self.render_window += 1
+                self._plot_training(window_number=str(self.render_window))
                 plt.show()
-                time.sleep(0.2)
+                time.sleep(0.1)
 
         # display env continuously
-        '''
+
         self.display_colors()
-        time.sleep(0.1)         # necessary  delay to regulate run speed
-        '''
+        time.sleep(0.001)         # necessary  delay to regulate run speed
+
+
         # TODO ensure the implementation of terminated and truncated is correct
         return self._create_observation(), reward, terminated, truncated, {'info': "Nothing"}
+
+    def sb3_step_completion(self):
+        truncated = False
+        if self.step_counter > 2 * 2048:    # for smaller time steps 10* to 20*
+            # for special condition display options
+            if self.last_end_product_count > math.inf:
+                self.conditional_display(self.render_delay)     # render_delay indicates episode (count)
+            self.render_delay += 1
+            # plot training within an episode
+            if self.step_counter % math.inf == 0:  # math.inf => (almost) never triggered
+                # only works if thread is started in the Environments __init__
+                self.plot_update = True     # TODO Slows learning down significantly
+            # create a new render window for the results so-and-so often
+            if self.render_delay % math.inf == 0 and self.render_delay != 0:  # math.inf => never triggered
+                self.render_window += 1
+                self.end_product_count = []  # only used for plotting
+                self.reward_history = []  # only used for plotting
+            # regular reset according to SB3 Website: Custom Environments
+            truncated = True
+            self.reset()                    # referring to SB3 Website: Custom Environments
+            self.step_counter = 0           # UNNECESSARY HERE (ALREADY IN RESET)
+            # self.display_colors()         # visual to ensure factory reset properly
+        return truncated
 
     def conditional_display(self, episode):
         if episode == self.last_episode + 1:
@@ -145,34 +204,6 @@ class CustomEnvironment(gymnasium.Env):
         else:
             self.good_consecutive_runs = 0
         self.last_episode = episode
-
-    def sb3_step_completion(self):
-        truncated = False
-        if self.step_counter > 2 * 2048:    # for smaller time steps 10* to 20*
-            # for special condition display options
-            if self.last_end_product_count > math.inf:
-                self.conditional_display(self.render_delay)     # render_delay indicates episode (count)
-            # regular reset according to SB3 Website: Custom Environments
-            truncated = True
-            self.reset()                    # referring to SB3 Website: Custom Environments
-            self.step_counter = 0           # UNNECESSARY HERE (ALREADY IN RESET)
-          # self.display_colors()           # visual to ensure factory reset properly
-            # create a new render window for the results so-and-so often
-            if self.render_delay % math.inf == 0:   # math.inf => never triggered
-                self.render_window += 1
-                self.end_product_count = []  # only used for plotting
-                self.reward_history = []  # only used for plotting
-            self.render_delay += 1
-            # plot training
-            if self.render_delay % math.inf == 0:   # update rate (math.inf => never updated)
-                self._plot_training(window_number=str(self.render_window))      # TODO updating does not work reliable
-                pygame.display.flip()
-                time.sleep(0.1)
-        return truncated
-
-
-    def render(self, mode='human'):
-        print("Rendering")
 
     def close(self):
         self.factory.shout_down()
@@ -254,6 +285,7 @@ class CustomEnvironment(gymnasium.Env):
             self.environment_set_action(self.factory.agvs[agv_index], self.factory.machines[2],
                                         self.factory.warehouses[0], command_index)
 
+        self.eliminate_two_searching_masters()  # ALTERNATIVE A LIFO SYSTEM FOR EVERY AGV POSITION
         # elif action == 5:
         #    self.unload_agv(self.factory.agvs[0], self.factory.warehouses[0])
 
@@ -273,6 +305,8 @@ class CustomEnvironment(gymnasium.Env):
         if agv.task_number == command_index:
             return
 
+        print(self.agv_couple_count_at[1], self.agv_couple_count_at[2])
+        print(str(agv)+ " " + str(command_index)) # useful for debugging
         # process all actions that don't require coupling
         if command_index == 3 or command_index == 4:
             self.deliver(agv, command_index, input_object, output_object)
@@ -280,19 +314,21 @@ class CustomEnvironment(gymnasium.Env):
         else:
             first = True
             for AGV in self.factory.agvs:
-                if AGV.task_number == command_index and AGV != agv:  # check whether different agv/s is/are first (already assigned)
+                if AGV.task_number == command_index and AGV != agv:  # check whether different agv/s is/are first (/already assigned)
                     try:  # since AGVs are running in a thread an update might rarely cause an AttributeError
                         # (coupling_master does not exist) TODO should no longer be an issue
-                        if not AGV.coupling_master.will_coupling_be_complete():
-                            # condition triggered when a master agv still needs slaves
-                            first = False
-                            break
+                        if AGV.coupling_master == AGV:  # safe some computing power
+                            if not AGV.coupling_master.will_coupling_be_complete():
+                                # condition triggered when a master agv still needs slaves
+                                first = False
                     except:
                         pass
 
             if first:
                 self.deliver(agv, command_index, input_object, output_object)
             else:
+                if not self.agv_couple_count_at[command_index] > 0:
+                    print("WFF")
                 self._couple(agv, output_object, command_index)
 
     def deliver(self, agv, command_index, input_object, output_object):  # added _at[command_index] to all self.(...)
@@ -302,11 +338,20 @@ class CustomEnvironment(gymnasium.Env):
                 # implemented for masters that move away
                 if agv.coupling_master == agv:
                     self.replace_master(agv)
+                    self.agv_couple_count_at[agv.task_number] += 1
                     # CAUTION! Such operations have to be processed before agv.task_number = command_index
+                # implemented to hinder coupled master to deliver - the leaving agv will cause a reset of the coupling process
+                if agv.coupling_master and agv.coupling_master != agv:  # masters got handled with above
+                    if agv.coupling_master.is_coupling_complete():  # masters' coupling was completed (a slave will be removed now though)
+                        agv.coupling_master.command = 'coupling'    # resetting master to coupling (waiting for slaves)
+                        agv.coupling_master.status = 'wait_for_coupling'
                 # implemented for agvs that are slaves of a waiting coupling master
-                if agv.coupling_master:
-                    self.agv_couple_count_at[agv.coupling_master.task_number] += 1
-                agv.free_from_coupling()
+                    '''if agv.coupling_master == self.coupling_master_at[agv.coupling_master.task_number]:  # if not there will be two masters and count_at will be figured out later
+                                        self.agv_couple_count_at[agv.coupling_master.task_number] += 1'''
+                    self.coupling_master_at[agv.coupling_master.task_number] = agv.coupling_master
+                    self.agv_couple_count_at[agv.coupling_master.task_number] += 1  # inconveniences will be resolved later anyways
+                agv.free_from_coupling()    # TODO it may happen that when several masters and their slaves leave a position the agv_couple_count_at become unsensible high
+                                            #  however, this isn't a significant issue (as soon as an agv gets assigned to the position as a master or several masters look for slaves the count will be reset to a sophisticated ammount)
                 agv.task_number = command_index
                 self.agv_positioning_at[command_index] = self.factory.get_agv_needed_for_product(product, agv)
                 if self.agv_positioning_at[command_index][0] > 1 or self.agv_positioning_at[command_index][
@@ -341,13 +386,21 @@ class CustomEnvironment(gymnasium.Env):
         if self.agv_couple_count_at[command_index] > 0:
             # if self.master_prevention(agv):
             #     return
-            # implemented for masters that move away (become no master) # TODO (might become junk)
+            # implemented for masters that move away (become no master)
             if agv.coupling_master == agv:
-                self.replace_master(agv)    # TODO fix position management (positions are assigned by the slave count,
-                                            #  not whether position is occupied - does not work properly)
-            # implemented for agvs that are slaves of a waiting coupling master
-            if agv.coupling_master:
-                self.agv_couple_count_at[agv.coupling_master.task_number] += 1
+                self.replace_master(agv)
+                self.agv_couple_count_at[agv.task_number] += 1
+                # CAUTION! Such operations have to be processed before agv.task_number = command_index
+            # implemented to hinder coupled master to deliver - the leaving agv will cause a reset of the coupling process
+            if agv.coupling_master and agv.coupling_master != agv:  # masters got handled with above
+                if agv.coupling_master.is_coupling_complete():  # masters' coupling was completed (a slave will be removed now though)
+                    agv.coupling_master.command = 'coupling'  # resetting master to coupling (waiting for slaves)
+                    agv.coupling_master.status = 'wait_for_coupling'
+                # implemented for agvs that are slaves of a waiting coupling master
+                '''if agv.coupling_master == self.coupling_master_at[agv.coupling_master.task_number]:  # if not there will be two masters and count_at will be figured out later
+                                    self.agv_couple_count_at[agv.coupling_master.task_number] += 1'''
+                self.coupling_master_at[agv.coupling_master.task_number] = agv.coupling_master
+                self.agv_couple_count_at[agv.coupling_master.task_number] += 1  # inconveniences will be resolved later anyways
             agv.free_from_coupling()
             agv.task_number = command_index
             count = 0
@@ -376,7 +429,8 @@ class CustomEnvironment(gymnasium.Env):
             self.agv_couple_count_at[command_index] -= 1
             return
         else:  # safeguard - todelete
-            print("MISTAKE")
+            for i in range(20):
+                print("MISTAKE")
             self.coupling_at[command_index] = False
 
     def master_prevention(self, agv):   # artefact function - todelete
@@ -406,6 +460,7 @@ class CustomEnvironment(gymnasium.Env):
                     self.assign_new_master(old_master, AGV)
                     return
         self.coupling_master_at[old_master.task_number] = None  # if no slaves are found
+        self.coupling_at[old_master.task_number] = False
         return
 
     def assign_new_master(self, old_master, new_master):
@@ -417,6 +472,85 @@ class CustomEnvironment(gymnasium.Env):
         new_master.status = 'move_to_coupling_position'
         new_master.move_target = old_master.move_target
         self.coupling_master_at[old_master.task_number] = new_master
+        # old_master.coupling_master = new_master     # necessary for some operation - will be shortly anyways
+
+    def eliminate_two_searching_masters(self):
+        masters = []
+        master_tasks = []
+        # catch all masters
+        for agv in self.factory.agvs:
+            if agv.coupling_master == agv:
+                masters.append(agv)
+                master_tasks.append(agv.task_number)
+        for i in range(1,self.n_agv_commands):
+            if master_tasks.count(i) > 1:     # true if there are several masters with the same task
+                masters_need_slaves = []
+                for task, master_agv in zip(master_tasks, masters):
+                    if task == i:
+                        if not master_agv.will_coupling_be_complete():
+                            masters_need_slaves.append(master_agv)
+                            if len(masters_need_slaves) > 1:
+                                if len(masters_need_slaves) > 2:
+                                    print("MISTAKE: CHECK OUT eliminate_tow_searching_masters FUNCTION")
+                                # find master with more slaves
+                                m1_slaves = []
+                                m2_slaves = []
+                                for agv in self.factory.agvs:
+                                    if agv.coupling_master == masters_need_slaves[0]:
+                                        if agv != agv.coupling_master:
+                                            m1_slaves.append(agv)
+                                    elif agv.coupling_master == masters_need_slaves[1]:
+                                        if agv != agv.coupling_master:
+                                            m2_slaves.append(agv)
+                                if len(m2_slaves) > 0 or len(m1_slaves) > 0:  # when at least one master has a slave
+                                    if len(m2_slaves) > len(m1_slaves):
+                                        # assign a slave of m1 to m2
+                                        if len(m1_slaves) > 0:
+                                            m1_slaves[-1].free_from_coupling()
+                                            m1_slaves[-1].task_number = masters_need_slaves[1].task_number
+                                            self._couple(m1_slaves[-1], masters_need_slaves[1].output_object, masters_need_slaves[1].task_number)
+                                            if masters_need_slaves[1].will_coupling_be_complete():  # ensure everything worked and sort out env-variables
+                                                self.agv_couple_count_at[i] = masters_need_slaves[0].agv_couple_count - len(m1_slaves) + 1 # +1 for the removed slave
+                                                self.coupling_master_at[i] = masters_need_slaves[0]
+                                            else:
+                                                print("MISTAKE: THERE WAS A MASTER ALTHOUGH A DIFFERENT MASTER WITH SAME TASK WAITED FOR MORE THAN ONE SLAVE TO BE ASSIGNED @1")
+                                        else:
+                                            self.master_becomes_slave(masters_need_slaves[0], masters_need_slaves[1], i, len(m2_slaves))
+                                    else:
+                                        # assign a slave of m2 to m1
+                                        if len(m2_slaves) > 0:
+                                            m2_slaves[-1].free_from_coupling()
+                                            m2_slaves[-1].task_number = masters_need_slaves[0].task_number
+                                            self._couple(m2_slaves[-1], masters_need_slaves[0].output_object, masters_need_slaves[0].task_number)
+                                            if masters_need_slaves[0].will_coupling_be_complete():  # ensure everything worked and sort out env-variables
+                                                self.agv_couple_count_at[i] = masters_need_slaves[1].agv_couple_count - len(m2_slaves) + 1 # +1 for the removed slave
+                                                self.coupling_master_at[i] = masters_need_slaves[1]
+                                            else:
+                                                print("MISTAKE: THERE WAS A MASTER ALTHOUGH A DIFFERENT MASTER WITH SAME TASK WAITED FOR MORE THAN ONE SLAVE TO BE ASSIGNED @2")
+                                        else:
+                                            self.master_becomes_slave(masters_need_slaves[1], masters_need_slaves[0], i, len(m1_slaves))
+                                else:  # both masters have no slaves (=> make second master slave of first)
+                                    # self.master_becomes_slave(masters_need_slaves[1], masters_need_slaves[0], i, 0) # TODO when ensured @3 is not needed this instead of following code:
+                                    masters_need_slaves[1].free_from_coupling()
+                                    masters_need_slaves[1].task_number = masters_need_slaves[0].task_number
+                                    self.coupling_master_at[i] = masters_need_slaves[0]     # necessary before _couple()
+                                    self._couple(masters_need_slaves[1], masters_need_slaves[0].output_object, masters_need_slaves[0].task_number)
+                                    self.agv_couple_count_at[i] = masters_need_slaves[0].agv_couple_count - 1   # one slave got assigned (possibly not needed)
+                                    if masters_need_slaves[0].will_coupling_be_complete():  # should m1 in any case
+                                        self.agv_couple_count_at[i] = 0
+                                        self.coupling_master_at[i] = None   # since one master is filled and other master became slave
+                                    else:
+                                        print("MISTAKE: THERE WAS A MASTER ALTHOUGH A DIFFERENT MASTER WITH SAME TASK WAITED FOR MORE THAN ONE SLAVE TO BE ASSIGNED @3")
+
+    def master_becomes_slave(self, new_slave, new_master, i, masters_slave_count):
+        new_slave.free_from_coupling()
+        new_slave.task_number = new_master.task_number
+        self.coupling_master_at[i] = new_master  # necessary before _couple()
+        self._couple(new_slave, new_master.output_object, new_master.task_number)
+        self.agv_couple_count_at[i] = new_master.agv_couple_count - masters_slave_count - 1  # one slave is old_master
+        if new_master.will_coupling_be_complete():  # should m1 in any case
+            self.agv_couple_count_at[i] = 0
+            self.coupling_master_at[i] = None
 
     @staticmethod
     def agv_is_master(self, agv):   # unused ? - todelete
@@ -432,15 +566,15 @@ class CustomEnvironment(gymnasium.Env):
         product_count = len(self.factory.warehouses[0].end_product_store)
         if product_count > self.last_end_product_count:
             self.last_end_product_count = product_count
-            reward = 10
+            reward = 1
 
         # Reward for lowering priority
         for machine in self.factory.machines:
             input_priority, output_priority = machine.get_buffer_status()
             critical_conditions += input_priority
-            critical_conditions += output_priority
+            # critical_conditions += output_priority
         if critical_conditions < self.last_critical_conditions:
-            reward += (self.last_critical_conditions - critical_conditions) * 0.8
+            reward += (self.last_critical_conditions - critical_conditions) * 1
         self.last_critical_conditions = critical_conditions
 
         # Reward for when an AGV is at an output that holds at least one product ("good position")
@@ -660,16 +794,16 @@ def sb_train():
     env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
     env.reset()
     model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99)
-    # model = sb.PPO.load("./data/PPO_1s_128x2x2048_2.2_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    model = sb.PPO.load("./data/PPO_1s_128x2x2048_2.2_no_threading.zip", env=env, verbose=1, gamma=0.99)
     # print(model.policy)
     model.learn(128 * 2 * 2048)
     model.save("./data/PPO_1s_128x2x2048_3.1_no_threading.zip")     # TODO: perhaps implement saves into env.step()
     model.learn(128 * 2 * 2048)
-    model.save("./data/PPO_1s_128x2x2048_2.2_no_threading.zip")
+    model.save("./data/PPO_1s_128x2x2048_3.2_no_threading.zip")
     model.learn(128 * 2 * 2048)
-    model.save("./data/PPO_1s_128x2x2048_2.3_no_threading.zip")
+    model.save("./data/PPO_1s_128x2x2048_3.3_no_threading.zip")
     model.learn(128 * 2 * 2048)
-    model.save("./data/PPO_1s_128x2x2048_2.4_no_threading.zip")
+    model.save("./data/PPO_1s_128x2x2048_3.4_no_threading.zip")
     env.close()
 
 
@@ -677,13 +811,73 @@ def sb_run_model():  # TODO (As of now this does not function)
     env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
     env.reset()
     # model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99)
-    model = sb.PPO.load("./data/PPO_1s_128x2x2048_2.2_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    model = sb.PPO.load("./data/custom_PPO_1s_512x2x2048_3.2_no_threading.zip", env=env, verbose=1, gamma=0.99)
 
     vec_env = model.get_env()
     obs = vec_env.reset()
     while True:
         action, _states = model.predict(obs, deterministic=True)
         obs, reward, done, _, info = env.step(action)
+
+
+def custom_sb_train():
+    env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
+    env.reset()
+    policy_kwargs = dict(activation_fn=th.nn.ReLU,
+                         net_arch=dict(pi=[128, 128, 64, 64, 32, 32, 16, 16], vf=[128, 128, 64, 64, 32, 32, 16, 16]))
+    model = sb.PPO('MlpPolicy', env=env, policy_kwargs=policy_kwargs,verbose=1, gamma=0.99)
+    # model = sb.PPO.load("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.2_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    # print(model.policy)
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.1_no_threading.zip") # TODO: perhaps implement saves into env.step()
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.2_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.3_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.4_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.5_no_threading.zip")
+    env.close()
+    env = CustomEnvironment(render=True)
+    env.reset()
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.6_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.7_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.8_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.9_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.10_no_threading.zip")
+    env.close()
+    env = CustomEnvironment(render=True)
+    env.reset()
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.11_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.12_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.13_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.14_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.15_no_threading.zip")
+    env.close()
+    env = CustomEnvironment(render=True)
+    env.reset()
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.16_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.17_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.18_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.19_no_threading.zip")
+    model.learn(128 * 2 * 2048)
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.20_no_threading.zip")
+    env.close()
 
 
 def custom_train():
@@ -778,7 +972,9 @@ def test():
 if __name__ == '__main__':
     print("Cuda is available: " + str(torch.cuda.is_available()))
 
+
     # test()
-    sb_train()
+    # sb_train()
     # sb_run_model()
+    custom_sb_train()
     # custom_train()
