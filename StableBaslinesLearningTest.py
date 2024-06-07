@@ -1,6 +1,8 @@
 import math
 import sys
 import time
+
+import numpy as np
 import pygame
 import gymnasium
 import stable_baselines3 as sb
@@ -154,12 +156,12 @@ class CustomEnvironment(gymnasium.Env):
         reward = self._get_reward()
         self._collect_train_data(reward)
         # plot training within an episode
-        if self.step_counter % math.inf == 0:   # math.inf => (almost) never triggered
+        if self.step_counter % 8 == 0:   # math.inf => (almost) never triggered
             if self.step_counter != 0:
                 # self.render_window += 1
                 self._plot_training(window_number=str(self.render_window))
                 plt.show()
-                time.sleep(0.1)
+                time.sleep(0.025)
 
         # display env continuously
         if self.render:
@@ -172,7 +174,7 @@ class CustomEnvironment(gymnasium.Env):
 
     def sb3_step_completion(self):
         truncated = False
-        if self.step_counter > 2 * 2048:    # for smaller time steps 10* to 20*
+        if self.step_counter > 2*2048:    # for smaller time steps 10* to 20*
             # for special condition display options
             if self.last_end_product_count > math.inf:
                 self.conditional_display(self.render_delay)     # render_delay indicates episode (count)
@@ -258,9 +260,16 @@ class CustomEnvironment(gymnasium.Env):
     def _calculate_agv_distances(pos_a, pos_b):
         return math.sqrt(math.pow(pos_a[0] - pos_b[0], 2) + math.pow(pos_a[1] - pos_b[1], 2))
 
-    def _perform_action(self, action):
-        command_index = int(action % self.n_agv_commands)  # the 1d action array is now used as a pseudo 2d array
-        agv_index = int(action / self.n_agv_commands)
+    def _perform_action(self, action_numpy):
+        if isinstance(action_numpy, np.ndarray):
+            action = action_numpy.item()
+        else:
+            action = action_numpy
+        # command_index = int(action % self.n_agv_commands)  # the 1d action array is now used as a pseudo 2d array
+        # agv_index = int(action / self.n_agv_commands)
+        # flipped interpretation to make right decision easier - better transport with a not perfect agv than not at all
+        command_index = int(action / self.n_agv)  # the 1d action array is now used as a pseudo 2d array
+        agv_index = int(action % self.n_agv)
 
         # temporary enablement to send all stuck agv to the temp storage (no longer a timer runs down)
         if command_index == 0:
@@ -599,7 +608,7 @@ class CustomEnvironment(gymnasium.Env):
 
             # Reward for being in a good position (to reinforce staying)
             if not AGV.is_moving() and id(AGV) in self.GoodAGVs:
-                reward += 0.002
+                reward += 0.01 * self.time_step
 
             # Negative Reward for leaving a good positions (punishment)
             if AGV.is_moving() and id(AGV) in self.GoodAGVs:
@@ -608,7 +617,7 @@ class CustomEnvironment(gymnasium.Env):
                 else:
                     is_agv_delivering = (AGV.status == 'move_to_input')
                 if is_agv_delivering:
-                    self.GoodAGVs.clear()
+                    self.GoodAGVs.remove(id(AGV))
                 else:
                     reward -= 0.1
                     self.GoodAGVs.remove(id(AGV))
@@ -791,16 +800,19 @@ def sb_train():
     env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
     env.reset()
     model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99)
-    model = sb.PPO.load("./data/PPO_1s_128x2x2048_2.2_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    model = sb.PPO.load("./data/flipped_actions/PPO_1s_64x2048_1.3_no_threading.zip", env=env, verbose=1, gamma=0.99)
     # print(model.policy)
-    model.learn(128 * 2 * 2048)
-    model.save("./data/PPO_1s_128x2x2048_3.1_no_threading.zip")     # TODO: perhaps implement saves into env.step()
-    model.learn(128 * 2 * 2048)
-    model.save("./data/PPO_1s_128x2x2048_3.2_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/PPO_1s_128x2x2048_3.3_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/PPO_1s_128x2x2048_3.4_no_threading.zip")
+
+    save_name_start = "./data/flipped_actions/PPO_1s_64x2048_1."
+    save_name_end = "_no_threading.zip"
+    for i in range(4,21):
+        save_name = save_name_start + str(i) + save_name_end
+        model.learn(64 * 2048)
+        model.save(save_name)
+
+    # model.learn(128 * 2 * 2048)
+    # model.save("./data/PPO_1s_128x2x2048_3.1_no_threading.zip")     # TODO: perhaps implement saves into env.step()
+
     env.close()
 
 
@@ -808,7 +820,7 @@ def sb_run_model():  # TODO (As of now this does not function)
     env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
     env.reset()
     # model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99)
-    model = sb.PPO.load("./data/custom_PPO_1s_512x2x2048_3.2_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    model = sb.PPO.load("./data/flipped_actions/PPO_1s_64x2048_GOOD_MODEL_no_threading.zip", env=env, verbose=1, gamma=0.99)
 
     vec_env = model.get_env()
     obs = vec_env.reset()
@@ -818,53 +830,23 @@ def sb_run_model():  # TODO (As of now this does not function)
 
 
 def custom_sb_train():
-    env = CustomEnvironment(render=False)  # True for display (creates the factory display window)
+    env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
     env.reset()
     policy_kwargs = dict(activation_fn=th.nn.ReLU,
-                         net_arch=dict(pi=[128, 128, 64, 64, 32, 32, 16, 16], vf=[128, 128, 64, 64, 32, 32, 16, 16]))
+                         net_arch=dict(pi=[32, 32, 32, 32, 32], vf=[32, 32, 32, 32, 32]))
     model = sb.PPO('MlpPolicy', env=env, policy_kwargs=policy_kwargs,verbose=1, gamma=0.99)
-    # model = sb.PPO.load("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.12_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    # model = sb.PPO.load("./data/flipped_actions/5x32/custom_PPO_1s_64x2048_1.2_no_threading.zip", env=env, verbose=1, gamma=0.99)
     # print(model.policy)
-    model.learn(128 * 2 * 2048)                     # TODO: perhaps implement saves into env.step()
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.1_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.2_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.3_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.4_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.5_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.6_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.7_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.8_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.9_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.10_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.11_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.12_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.13_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.14_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.15_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.16_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.17_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.18_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.19_no_threading.zip")
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.20_no_threading.zip")
+    save_name_start = "./data/flipped_actions/5x32/custom_PPO_1s_64x2048_1."
+    save_name_end = "_no_threading.zip"
+    for i in range(21):
+        save_name = save_name_start + str(i) + save_name_end
+        model.learn(64 * 2048)
+        model.save(save_name)
+
+    # model.learn(128 * 2 * 2048)                     # TODO: perhaps implement saves into env.step()
+    # model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.1_no_threading.zip")
+
     env.close()
 
 
@@ -957,12 +939,53 @@ def test():
     env.close()
 
 
+def test2():
+    env = CustomEnvironment(render=True)
+    env.reset()
+    env.display_colors()
+    delivery = 1
+
+    val = 0
+    while True:
+        '''
+        if val == 2:
+            env.step(0)
+        else:
+            val = test2_helper(env, 1)
+        '''
+        if delivery == 1:
+            delivery = test2_helper(env, delivery)
+        elif delivery == 2:
+            delivery = 1
+            # delivery = test2_helper(env, delivery)
+        elif delivery == 3:
+            delivery = test2_helper(env, delivery)
+        elif delivery == 4:
+            delivery = test2_helper(env, delivery)
+        elif delivery == 5:
+            delivery = 1
+
+
+def test2_helper(env, delivery):
+    all_done = True
+    for i in range(env.n_agv):
+        if env.factory.agvs[i].task_number == delivery-1 or (env.factory.agvs[i].task_number == 4 and delivery == 1):
+            if env.factory.agvs[i].is_free:
+                env.step(delivery * env.n_agv + i)     # for flipped commands
+                all_done = False
+                break
+    if all_done:
+        delivery += 1
+        env.step(0)
+    return delivery
+
+
 if __name__ == '__main__':
     print("Cuda is available: " + str(torch.cuda.is_available()))
 
-
-    # test()
-    # sb_train()
-    # sb_run_model()
-    custom_sb_train()
+    #sb_train()
+    sb_run_model()
+    # custom_sb_train()
     # custom_train()
+    # test()
+    # test2()
