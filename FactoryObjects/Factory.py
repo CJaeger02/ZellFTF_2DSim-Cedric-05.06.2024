@@ -233,7 +233,7 @@ class Factory:
         self.fill_grid()
         print(self.factory_grid_layout)
 
-        self.product_types['one'] = dict(length=200, width=600, weight=4.5)  # dict(length=1100, width=600, weight=9.0)
+        self.product_types['one'] = dict(length=1100, width=600, weight=4.5)  # dict(length=1100, width=600, weight=9.0)
         self.product_types['two'] = dict(length=600, width=600, weight=4.5)  # dict(length=600, width=600, weight=4.5)
         self.product_types['three'] = dict(length=250, width=250, weight=4.5)
         self.product_types['four'] = dict(length=250, width=250, weight=4.5)

@@ -59,6 +59,7 @@ class CustomEnvironment(gymnasium.Env):
         self.reference_size = self.factory.cell_size * 1000
         self.screen = None
 
+        self.render = render
         if render:
             pygame.init()
             self.screen = pygame.display.set_mode((self.width * self.pixel_size, self.height * self.pixel_size))
@@ -131,8 +132,6 @@ class CustomEnvironment(gymnasium.Env):
         self.coupling_master_at.extend([None] * self.n_agv_commands)
         self.agv_positioning_at = [[1 for _ in range(2)] for _ in range(self.n_agv_commands)]
 
-        print("RESET")
-
         return self._create_observation(), {'info': "Nothing"}
 
     def step(self, action):
@@ -152,7 +151,6 @@ class CustomEnvironment(gymnasium.Env):
         # used for SB-learning (e.g. PPO)
         truncated = self.sb3_step_completion()
         # "!truncated is used when "time limit" is hit AND time is not part of the observation space, else terminated!"
-
         reward = self._get_reward()
         self._collect_train_data(reward)
         # plot training within an episode
@@ -164,9 +162,9 @@ class CustomEnvironment(gymnasium.Env):
                 time.sleep(0.1)
 
         # display env continuously
-
-        self.display_colors()
-        time.sleep(0.001)         # necessary  delay to regulate run speed
+        if self.render:
+            self.display_colors()
+            time.sleep(0.1)         # necessary  delay to regulate run speed
 
 
         # TODO ensure the implementation of terminated and truncated is correct
@@ -184,7 +182,7 @@ class CustomEnvironment(gymnasium.Env):
                 # only works if thread is started in the Environments __init__
                 self.plot_update = True     # TODO Slows learning down significantly
             # create a new render window for the results so-and-so often
-            if self.render_delay % math.inf == 0 and self.render_delay != 0:  # math.inf => never triggered
+            if self.render_delay % 128 == 0 and self.render_delay != 0:  # math.inf => never triggered
                 self.render_window += 1
                 self.end_product_count = []  # only used for plotting
                 self.reward_history = []  # only used for plotting
@@ -305,8 +303,8 @@ class CustomEnvironment(gymnasium.Env):
         if agv.task_number == command_index:
             return
 
-        print(self.agv_couple_count_at[1], self.agv_couple_count_at[2])
-        print(str(agv)+ " " + str(command_index)) # useful for debugging
+        # print(self.agv_couple_count_at[1], self.agv_couple_count_at[2])
+        # print(str(agv)+ " " + str(command_index)) # useful for debugging
         # process all actions that don't require coupling
         if command_index == 3 or command_index == 4:
             self.deliver(agv, command_index, input_object, output_object)
@@ -429,8 +427,7 @@ class CustomEnvironment(gymnasium.Env):
             self.agv_couple_count_at[command_index] -= 1
             return
         else:  # safeguard - todelete
-            for i in range(20):
-                print("MISTAKE")
+            print("MISTAKE")
             self.coupling_at[command_index] = False
 
     def master_prevention(self, agv):   # artefact function - todelete
@@ -821,15 +818,15 @@ def sb_run_model():  # TODO (As of now this does not function)
 
 
 def custom_sb_train():
-    env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
+    env = CustomEnvironment(render=False)  # True for display (creates the factory display window)
     env.reset()
     policy_kwargs = dict(activation_fn=th.nn.ReLU,
                          net_arch=dict(pi=[128, 128, 64, 64, 32, 32, 16, 16], vf=[128, 128, 64, 64, 32, 32, 16, 16]))
     model = sb.PPO('MlpPolicy', env=env, policy_kwargs=policy_kwargs,verbose=1, gamma=0.99)
-    # model = sb.PPO.load("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.2_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    # model = sb.PPO.load("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.12_no_threading.zip", env=env, verbose=1, gamma=0.99)
     # print(model.policy)
-    model.learn(128 * 2 * 2048)
-    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.1_no_threading.zip") # TODO: perhaps implement saves into env.step()
+    model.learn(128 * 2 * 2048)                     # TODO: perhaps implement saves into env.step()
+    model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.1_no_threading.zip")
     model.learn(128 * 2 * 2048)
     model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.2_no_threading.zip")
     model.learn(128 * 2 * 2048)
@@ -838,9 +835,6 @@ def custom_sb_train():
     model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.4_no_threading.zip")
     model.learn(128 * 2 * 2048)
     model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.5_no_threading.zip")
-    env.close()
-    env = CustomEnvironment(render=True)
-    env.reset()
     model.learn(128 * 2 * 2048)
     model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.6_no_threading.zip")
     model.learn(128 * 2 * 2048)
@@ -851,9 +845,6 @@ def custom_sb_train():
     model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.9_no_threading.zip")
     model.learn(128 * 2 * 2048)
     model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.10_no_threading.zip")
-    env.close()
-    env = CustomEnvironment(render=True)
-    env.reset()
     model.learn(128 * 2 * 2048)
     model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.11_no_threading.zip")
     model.learn(128 * 2 * 2048)
@@ -864,9 +855,6 @@ def custom_sb_train():
     model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.14_no_threading.zip")
     model.learn(128 * 2 * 2048)
     model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.15_no_threading.zip")
-    env.close()
-    env = CustomEnvironment(render=True)
-    env.reset()
     model.learn(128 * 2 * 2048)
     model.save("./data/2x128_2x64_2x32_2x16/custom_PPO_1s_128x2x2048_2.16_no_threading.zip")
     model.learn(128 * 2 * 2048)

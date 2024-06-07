@@ -223,7 +223,7 @@ class AGV:
         if self.loaded_product is None and product is not None:
             if (product.width > self.width * self.coupled_size[0]
                     or product.length > self.length * self.coupled_size[1]
-                    or product.weight > self.payload * self.agv_couple_count):
+                    or product.weight > self.payload * (self.agv_couple_count+1)):  # slaves + master
                 return False
             self.loaded_product = product
             self.loaded_product.stored_in = self
@@ -277,6 +277,8 @@ class AGV:
                 slave_count += 1
         if self.agv_couple_count == slave_count:
             return True
+        elif self.agv_couple_count > slave_count:
+            print("AGV", str(self), "has more assigned slaves than mandatory")
         return False
 
     def is_coupling_complete(self):
@@ -294,6 +296,8 @@ class AGV:
             if self.coupling_time >= self.coupling_time_max:
                 self.coupling_time = 0
                 return True
+        elif self.agv_couple_count > slave_count:
+            print("AGV", str(self), "has more assigned slaves than mandatory")
         return False
 
     def decouple(self):
