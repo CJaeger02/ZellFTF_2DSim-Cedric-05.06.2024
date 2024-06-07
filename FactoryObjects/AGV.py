@@ -277,7 +277,7 @@ class AGV:
                 slave_count += 1
         if self.agv_couple_count == slave_count:
             return True
-        elif self.agv_couple_count > slave_count:
+        elif self.agv_couple_count < slave_count:
             print("AGV", str(self), "has more assigned slaves than mandatory")
         return False
 
@@ -296,7 +296,7 @@ class AGV:
             if self.coupling_time >= self.coupling_time_max:
                 self.coupling_time = 0
                 return True
-        elif self.agv_couple_count > slave_count:
+        elif self.agv_couple_count < slave_count:
             print("AGV", str(self), "has more assigned slaves than mandatory")
         return False
 
