@@ -37,8 +37,6 @@ class RainbowLearning:
         if net is None:
             raise ValueError('Error: Got no neural net class!')
 
-        self.eps = eps
-
         self.gamma = gamma
         self.batch_size = batch_size
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

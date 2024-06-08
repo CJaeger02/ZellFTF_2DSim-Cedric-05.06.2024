@@ -13,18 +13,18 @@ class RainbowNetwork(torch.nn.Module):
 
         # set common feature layer
         self.feature_layers = torch.nn.Sequential(
-            torch.nn.Linear(in_dim, 128),
+            torch.nn.Linear(in_dim, 64),
             torch.nn.LeakyReLU(),
-            torch.nn.Linear(128, 256),
+            torch.nn.Linear(64, 64),
         )
 
         # set advantage layer
-        self.advantage_hidden_layer = NoisyLinear(256, 256, std_init)
-        self.advantage_layer = NoisyLinear(256, self.out_dim * self.atom_size)
+        self.advantage_hidden_layer = NoisyLinear(64, 64, std_init)
+        self.advantage_layer = NoisyLinear(64, self.out_dim * self.atom_size)
 
         # set value layer
-        self.value_hidden_layer = NoisyLinear(256, 256, std_init)
-        self.value_layer = NoisyLinear(256, self.atom_size)
+        self.value_hidden_layer = NoisyLinear(64, 64, std_init)
+        self.value_layer = NoisyLinear(64, self.atom_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward method implementation."""
