@@ -151,12 +151,13 @@ class CustomEnvironment(gymnasium.Env):
         self._block_until_synchronized()
 
         # used for SB-learning (e.g. PPO)
-        truncated = self.sb3_step_completion()
+      # truncated = self.sb3_step_completion()
         # "!truncated is used when "time limit" is hit AND time is not part of the observation space, else terminated!"
+
         reward = self._get_reward()
         self._collect_train_data(reward)
         # plot training within an episode
-        if self.step_counter % 8 == 0:   # math.inf => (almost) never triggered
+        if self.step_counter % 8 == 0:   # math.inf => (almost) never triggered   #512 is reasonable for observation
             if self.step_counter != 0:
                 # self.render_window += 1
                 self._plot_training(window_number=str(self.render_window))
@@ -174,7 +175,7 @@ class CustomEnvironment(gymnasium.Env):
 
     def sb3_step_completion(self):
         truncated = False
-        if self.step_counter > 2*2048:    # for smaller time steps 10* to 20*
+        if self.step_counter > 2048:    # for smaller time steps 10* to 20*
             # for special condition display options
             if self.last_end_product_count > math.inf:
                 self.conditional_display(self.render_delay)     # render_delay indicates episode (count)
@@ -184,8 +185,8 @@ class CustomEnvironment(gymnasium.Env):
                 # only works if thread is started in the Environments __init__
                 self.plot_update = True     # TODO Slows learning down significantly
             # create a new render window for the results so-and-so often
-            if self.render_delay % 128 == 0 and self.render_delay != 0:  # math.inf => never triggered
-                self.render_window += 1
+            if self.render_delay % 64 == 0 and self.render_delay != 0:  # math.inf => never triggered
+                # self.render_window += 1
                 self.end_product_count = []  # only used for plotting
                 self.reward_history = []  # only used for plotting
             # regular reset according to SB3 Website: Custom Environments
@@ -800,12 +801,12 @@ def sb_train():
     env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
     env.reset()
     model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99)
-    model = sb.PPO.load("./data/flipped_actions/PPO_1s_64x2048_1.3_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    model = sb.PPO.load("./data/flipped_actions/PPO_1s_64x2048_1.7_no_threading.zip", env=env, verbose=1, gamma=0.99)
     # print(model.policy)
 
     save_name_start = "./data/flipped_actions/PPO_1s_64x2048_1."
     save_name_end = "_no_threading.zip"
-    for i in range(4,21):
+    for i in range(8,21):
         save_name = save_name_start + str(i) + save_name_end
         model.learn(64 * 2048)
         model.save(save_name)
@@ -820,7 +821,7 @@ def sb_run_model():  # TODO (As of now this does not function)
     env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
     env.reset()
     # model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99)
-    model = sb.PPO.load("./data/flipped_actions/PPO_1s_64x2048_GOOD_MODEL_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    model = sb.PPO.load("./data/flipped_actions/PPO_1s_64x2048_VERY_GOOD_MODEL_no_threading.zip", env=env, verbose=1, gamma=0.99)
 
     vec_env = model.get_env()
     obs = vec_env.reset()
@@ -851,17 +852,22 @@ def custom_sb_train():
 
 
 def custom_train():
-    env = CustomEnvironment(render=False)  # True for display (creates the factory display window)
+    env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
     # env.display_colors()
     net = MachineLearning.RainbowNetwork.RainbowNetwork
     ml_agent = RainbowLearning(state_d=env.observation_space.shape[0], action_d=env.action_space.n, net=net, lr=1e-3,
                                gamma=0.95, memory_size=1000, batch_size=256, alpha=0.2, beta=0.6, prior_eps=1e-6,
                                target_update=100, std_init=0.5, n_step=4, v_min=0, v_max=200)
-    episodes = 1000                                                     # defines number of training episodes
-    save_interval = 20                                                  # defines the saving rate (episodes)
-    max_steps = 1024                                                    # defines episode lengths
-    # ml_agent.load("Gen3_Sub6")
-    highscore = None
+    episodes = 2 * 2048                                                     # defines number of training episodes
+    save_interval = math.inf                                                 # defines the saving rate (episodes)
+    max_steps = 2048                                                   # defines episode lengths
+    ml_agent.load("flipped_actions/Rainbow_RN_all64_at.size20__1s_64x2048_tr.freq.128__1.2_no_threading")
+
+    highscore = -math.inf
+    save_name_start = "flipped_actions/Rainbow_RN_all64_at.size20__1s_64x2048_tr.freq.128__1."
+    save_name_end = "_no_threading"
+    save_i = 0
+
     for e in range(episodes):
         steps = 0
         state = env.reset()
@@ -869,15 +875,17 @@ def custom_train():
         ml_agent.set_state(state)
         done = False
         accu_reward = 0
-        actions = []                                                    # for monitoring
-        rewards = []                                                    # for monitoring
+        # actions = []                                                    # for monitoring
+        # rewards = []                                                    # for monitoring
+        ep_start_time = time.time()
         while not done:
+            steps += 1
             env.step_start_time = time.time()
             # action_index = ml_agent.get_action_without_state()          # why?
             action_index = ml_agent.get_action(env.create_obs())        # added this line to replace the one above
             new_state, reward, done, _, info = env.step(action_index)
-            actions.append(action_index)                                # for monitoring
-            if steps > max_steps:                                       # should rather be in env.step()?
+            # actions.append(action_index)                                # for monitoring
+            if steps >= max_steps:                                       # should rather be in env.step()?
                 done = True
 
                 env.reset()  # env reset required when terminating(?)
@@ -885,26 +893,35 @@ def custom_train():
 
             ml_agent.add_memory_data(new_state, reward, done)
             accu_reward += reward
-            rewards.append(reward)                                      # for monitoring
-            steps += 1
+            # rewards.append(reward)                                      # for monitoring
             # TODO: Training more frequently (and within an episode) might enhance learning performance
             if steps % 128 == 0:
                 ml_agent.train()
 
-        ml_agent.train()
+        #ml_agent.train()
         sys.stdout.write(
-            "\r" + "Epoch: " + str(e + 1) + " Score: " + str(accu_reward) + " last steps: " + str(steps) + "\n")
+            "\r" + "Epoch: " + str(e + 1) + " Score: " + str(accu_reward) + " last steps: " + str(steps) +
+            " fps: " + str(max_steps / (time.time() - ep_start_time)) + "\n")
         # print(actions)                                                  # for monitoring
         # print(rewards)                                                  # for monitoring
         if e % save_interval == save_interval - 1:
-            ml_agent.save("Gen4_Sub1")
-            print(" saved")
-            # time.sleep(0.2)
+            ml_agent.save(save_name_start + str(save_i) + save_name_end)
+            print("Model saved")
+            time.sleep(0.1)
+            save_i += 1
+
+            #reset plotting arrays
+            env.end_product_count = []
+            env.reward_history = []
+
         if accu_reward > highscore:                                     # save the NN that achieved the highest score
-            ml_agent.save("Gen4_Sub1_highscore")
+            ml_agent.save("flipped_actions/Rainbow_RN_all64_at.size20__1s_64x2048_tr.freq.128__Highscore_no_threading")
             highscore = accu_reward
     env.close()
 
+
+def custom_run_model():  # TODO
+    pass
 
 def test():
     env = CustomEnvironment(render=True)
@@ -983,9 +1000,10 @@ def test2_helper(env, delivery):
 if __name__ == '__main__':
     print("Cuda is available: " + str(torch.cuda.is_available()))
 
-    #sb_train()
-    sb_run_model()
+    # sb_train()
+    # sb_run_model()
     # custom_sb_train()
-    # custom_train()
+    custom_train()
+    custom_run_model()  # TODO
     # test()
     # test2()
