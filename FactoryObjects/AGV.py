@@ -55,6 +55,7 @@ class AGV:
 
         self.is_slave = False
         self.unload_stucked_agvs = False
+        self.is_moving = False
 
     def reload_settings(self):
         self.max_speed = config.agv['max_speed']
@@ -84,6 +85,7 @@ class AGV:
         self.move_target = [self.pos_x, self.pos_y]  # relevant for is_moving() function
 
         self.is_slave = False
+        self.is_moving = False
         self.unload_stucked_agvs = False
 
     def set_target(self, target):
@@ -154,11 +156,13 @@ class AGV:
         elif self.command == 'follow_master':
             self.follow_master()
         if self.command == 'idle':
+            self.is_moving = False
             self.idle_time += self.time_step
         else:
             self.idle_time = 0
 
     def move_state(self):
+        self.is_moving = True
         move_vector = [self.move_target[0] - self.pos_x, self.move_target[1] - self.pos_y]
         distance = math.sqrt(math.pow(move_vector[0], 2) + math.pow(move_vector[1], 2))
         if distance < 1:    # TODO [inelegant] value has to equal time_step of main prog. (1 m/s * t = VALUE(t) m)
@@ -187,6 +191,7 @@ class AGV:
             if self.move_state():
                 self.status = 'load_product'
         elif self.status == 'load_product':
+            self.is_moving = False
             product = self.output_object.handover_output_product(self.target_product)
             if self.load_product(product):
                 # added for RL
@@ -209,6 +214,7 @@ class AGV:
                 self.status = 'unload_product'
                 self.waited_time = 0.0
         elif self.status == 'unload_product':
+            self.is_moving = False
             if self.input_object.handover_input_product(self.loaded_product):
                 self.loaded_product = None
                 self.decouple()
@@ -255,6 +261,7 @@ class AGV:
             if self.move_state():
                 self.status = 'master_slave_decision'
         elif self.status == 'master_slave_decision':
+            self.is_moving = False
             if self.coupling_master == self:
                 self.status = 'wait_for_coupling'
                 # for RL
@@ -309,6 +316,7 @@ class AGV:
                     agv.is_free = True
                     agv.task_number = 0         # nothing task
                     agv.coupling_master = None
+                    agv.is_moving = False
             self.coupling_master = None
             self.coupled_size = [1, 1]
             self.agv_couple_count = 0
@@ -333,15 +341,24 @@ class AGV:
                         self.factory.cell_size * 1000),
                                     self.coupling_master.pos_y + self.coupling_formation_position[1] * self.length / (
                                             self.factory.cell_size * 1000)]
-            self.move_state()
+
+            if self.coupling_master.is_moving:
+                if self.coupling_master.status not in ['move_to_coupling_position', 'master_slave_decision']:
+                    self.move_state()
+        else:
+            print("MISTAKE: AGV is following a none existing master")
 
     def get_middle_position(self):
         return [self.pos_x, self.pos_y]
 
-    def is_moving(self):
-        if self.move_target == [self.pos_x, self.pos_y]:
-            return False
-        return True
+    def is_moving_(self):   # not needed after implementation of self.is_moving boolean
+        if self.move_target != [self.pos_x, self.pos_y]:
+            return True
+        elif self.coupling_master:
+            if self.command == 'follow_master':
+                if self.coupling_master.move_target != [self.coupling_master.pos_x, self.coupling_master.pos_y]:
+                    return True
+        return False
 
     def free_from_coupling(self):   # CAUTION WHEN USING THIS - make sure the right task_number is assigned afterwards
         self.is_slave = False
@@ -354,6 +371,8 @@ class AGV:
         self.agv_couple_count = 0
 
         self.task_number = 0
+        self.move_target = [self.pos_x, self.pos_y]
+        self.is_moving = False
 
         self.output_object = None
         self.input_object = None

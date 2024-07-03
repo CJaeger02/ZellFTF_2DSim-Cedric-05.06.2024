@@ -132,8 +132,8 @@ class Factory:
         self.warehouses[0].width = 2
         self.warehouses[0].pos_input = [4, 8]
         self.warehouses[0].pos_output = [1, 8]
-        self.warehouses[0].input_products = ['four']    # ['four']
-        self.warehouses[0].output_products = ['one']
+        self.warehouses[0].input_products = ['product_4']    # ['four']
+        self.warehouses[0].output_products = ['product_1']
         self.warehouses[0].factory = self
         self.warehouses[0].process_time = 10
         self.warehouses[0].rest_process_time = 10
@@ -145,8 +145,8 @@ class Factory:
         self.machines[0].width = 3
         self.machines[0].pos_input = [1, 2]
         self.machines[0].pos_output = [2, 1]
-        self.machines[0].input_products = ['one']
-        self.machines[0].output_products = ['two']
+        self.machines[0].input_products = ['product_1']
+        self.machines[0].output_products = ['product_2']
         self.machines[0].factory = self
 
         self.machines.append(Machine())
@@ -156,8 +156,8 @@ class Factory:
         self.machines[1].width = 3
         self.machines[1].pos_input = [7, 1]
         self.machines[1].pos_output = [8, 2]
-        self.machines[1].input_products = ['two']
-        self.machines[1].output_products = ['three']
+        self.machines[1].input_products = ['product_2']
+        self.machines[1].output_products = ['product_3']
         self.machines[1].factory = self
         self.machines[1].process_time = 20
         self.machines[1].rest_process_time = 20
@@ -170,8 +170,8 @@ class Factory:
         self.machines[2].width = 3
         self.machines[2].pos_input = [8, 7]
         self.machines[2].pos_output = [7, 8]
-        self.machines[2].input_products = ['three']
-        self.machines[2].output_products = ['four']
+        self.machines[2].input_products = ['product_3']
+        self.machines[2].output_products = ['product_4']
         self.machines[2].factory = self
         self.machines[2].process_time = 10
         self.machines[2].rest_process_time = 10
@@ -233,10 +233,10 @@ class Factory:
         self.fill_grid()
         print(self.factory_grid_layout)
 
-        self.product_types['one'] = dict(length=1100, width=600, weight=4.5)  # dict(length=1100, width=600, weight=9.0)
-        self.product_types['two'] = dict(length=600, width=600, weight=4.5)  # dict(length=600, width=600, weight=4.5)
-        self.product_types['three'] = dict(length=250, width=250, weight=4.5)
-        self.product_types['four'] = dict(length=250, width=250, weight=4.5)
+        self.product_types['product_1'] = dict(length=1100, width=600, weight=4.5)  # dict(length=1100, width=600, weight=9.0)
+        self.product_types['product_2'] = dict(length=600, width=600, weight=4.5)  # dict(length=600, width=600, weight=4.5)
+        self.product_types['product_3'] = dict(length=250, width=250, weight=4.5)
+        self.product_types['product_4'] = dict(length=250, width=250, weight=4.5)
         print(self.product_types)
         print(self.machines)
 
@@ -459,7 +459,7 @@ class Factory:
         new_product.length = self.product_types[product_name]['length']
         new_product.width = self.product_types[product_name]['width']
         new_product.weight = self.product_types[product_name]['weight']
-        self.products_id_count += 1
+        self.products_id_count += 10
         new_product.name = product_name
         new_product.stored_in = self
         self.products.append(new_product)

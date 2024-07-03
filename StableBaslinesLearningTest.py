@@ -1,6 +1,7 @@
 import math
 import sys
 import time
+import os
 
 import numpy as np
 import pygame
@@ -25,7 +26,7 @@ if is_ipython:
 
 
 class CustomEnvironment(gymnasium.Env):
-    def __init__(self, render=False):
+    def __init__(self, render=False, variation_training=False, var_save_path=None, var_save_name=None):
         super(CustomEnvironment, self).__init__()
         self.agv_positioning = None
         self.coupling_command = None
@@ -89,6 +90,13 @@ class CustomEnvironment(gymnasium.Env):
         # plot_thread = threading.Thread(target=self.plot_threading)
         # plot_thread.start()
 
+        self.variation_training = variation_training
+        self.var_save_path = var_save_path
+        self.var_save_name = var_save_name
+        self.machine_status_history = [[] for _ in range(3)]
+        self.agv_free_history = [[] for _ in range(6)]
+        self.last_machine_priority = [[4, 4] for _ in range(3)]
+
     def plot_threading(self):
         plt.ion()  # Turn on interactive mode
         plt.show()
@@ -134,6 +142,13 @@ class CustomEnvironment(gymnasium.Env):
         self.coupling_master_at.extend([None] * self.n_agv_commands)
         self.agv_positioning_at = [[1 for _ in range(2)] for _ in range(self.n_agv_commands)]
 
+        index = 0
+        for machine in self.factory.machines:
+            input_priority, output_priority = machine.get_buffer_status()
+            self.last_machine_priority[index][0] = input_priority
+            self.last_machine_priority[index][1] = output_priority
+            index += 1
+
         return self._create_observation(), {'info': "Nothing"}
 
     def step(self, action):
@@ -151,13 +166,13 @@ class CustomEnvironment(gymnasium.Env):
         self._block_until_synchronized()
 
         # used for SB-learning (e.g. PPO)
-      # truncated = self.sb3_step_completion()
+        truncated = self.sb3_step_completion()
         # "!truncated is used when "time limit" is hit AND time is not part of the observation space, else terminated!"
 
         reward = self._get_reward()
         self._collect_train_data(reward)
         # plot training within an episode
-        if self.step_counter % 8 == 0:   # math.inf => (almost) never triggered   #512 is reasonable for observation
+        if self.step_counter % math.inf == 0:  # math.inf => (almost) never triggered   #512 is reasonable for observation
             if self.step_counter != 0:
                 # self.render_window += 1
                 self._plot_training(window_number=str(self.render_window))
@@ -167,32 +182,34 @@ class CustomEnvironment(gymnasium.Env):
         # display env continuously
         if self.render:
             self.display_colors()
-            time.sleep(0.1)         # necessary  delay to regulate run speed
-
+            time.sleep(0.001)  # necessary  delay to regulate run speed
 
         # TODO ensure the implementation of terminated and truncated is correct
         return self._create_observation(), reward, terminated, truncated, {'info': "Nothing"}
 
     def sb3_step_completion(self):
         truncated = False
-        if self.step_counter > 2048:    # for smaller time steps 10* to 20*
+        if self.step_counter > (2048/1):  # for smaller time steps 10* to 20*
             # for special condition display options
             if self.last_end_product_count > math.inf:
-                self.conditional_display(self.render_delay)     # render_delay indicates episode (count)
+                self.conditional_display(self.render_delay)  # render_delay indicates episode (count)
             self.render_delay += 1
-            # plot training within an episode
-            if self.step_counter % math.inf == 0:  # math.inf => (almost) never triggered
+            # plot training at the end of every n episodes
+            if self.render_delay % 8 == 0 and self.step_counter != 0:  # math.inf => (almost) never triggered
                 # only works if thread is started in the Environments __init__
-                self.plot_update = True     # TODO Slows learning down significantly
+                #self.plot_update = True     # TODO Slows down learning significantly
+                self._plot_training(window_number=str(self.render_window))
+                plt.show()
+                time.sleep(0.025)
             # create a new render window for the results so-and-so often
-            if self.render_delay % 64 == 0 and self.render_delay != 0:  # math.inf => never triggered
+            if self.render_delay % math.inf == 0 and self.render_delay != 0:  # math.inf => never triggered
                 # self.render_window += 1
                 self.end_product_count = []  # only used for plotting
                 self.reward_history = []  # only used for plotting
             # regular reset according to SB3 Website: Custom Environments
             truncated = True
-            self.reset()                    # referring to SB3 Website: Custom Environments
-            self.step_counter = 0           # UNNECESSARY HERE (ALREADY IN RESET)
+            self.reset()  # referring to SB3 Website: Custom Environments
+            self.step_counter = 0  # UNNECESSARY HERE (ALREADY IN RESET)
             # self.display_colors()         # visual to ensure factory reset properly
         return truncated
 
@@ -208,9 +225,26 @@ class CustomEnvironment(gymnasium.Env):
 
     def close(self):
         self.factory.shout_down()
-        self._plot_training(True, window_number='Final')
+        '''self._plot_training(True, window_number='Final')
         plt.ioff()
-        plt.show()
+        plt.show()'''
+        if self.variation_training and self.reward_history:
+            np_ar_end_prod = np.array(self.end_product_count)
+            np_ar_end_prod_name = str(self.var_save_name) + "_end_product_counts"
+            file_path = os.path.join(self.var_save_path, np_ar_end_prod_name)
+            np.save(file_path, np_ar_end_prod)
+            np_ar_rew_hist = np.array(self.reward_history)
+            np_ar_rew_hist_name = str(self.var_save_name) + "_reward_history"
+            file_path = os.path.join(self.var_save_path, np_ar_rew_hist_name)
+            np.save(file_path, np_ar_rew_hist)
+            np_ar_mach_hist = np.array(self.machine_status_history)
+            np_ar_mach_hist_name = str(self.var_save_name) + "_machine_status_history"
+            file_path = os.path.join(self.var_save_path, np_ar_mach_hist_name)
+            np.save(file_path, np_ar_mach_hist)
+            np_ar_agv_free_hist = np.array(self.agv_free_history)
+            np_ar_agv_free_hist_name = str(self.var_save_name) + "_agv_free_history"
+            file_path = os.path.join(self.var_save_path, np_ar_agv_free_hist_name)
+            np.save(file_path, np_ar_agv_free_hist)
 
     def create_obs(self):  # temporary solution to get access
         return self._create_observation()
@@ -306,7 +340,7 @@ class CustomEnvironment(gymnasium.Env):
     def environment_set_action(self, agv, output_object, input_object,
                                command_index):  # caution: self.coup... is a StableBas.Learn.Test variable
         if not agv.is_free:  # TODO !perhaps! NN should be able to always change targets unless agv is loaded
-                             #  => add function/-s (especially regarding coupling)
+            #  => add function/-s (especially regarding coupling)
             return
 
         # TODO Does this work when threading (in current implementation reassignment has to be prevented)
@@ -341,7 +375,7 @@ class CustomEnvironment(gymnasium.Env):
 
     def deliver(self, agv, command_index, input_object, output_object):  # added _at[command_index] to all self.(...)
         # TO-DO: (eventually) unsophisticated implementation when there are more input products (with different origins)
-        for product in input_object.input_products: # required to get product properties
+        for product in input_object.input_products:  # required to get product properties
             if output_object is not None:
                 # implemented for masters that move away
                 if agv.coupling_master == agv:
@@ -351,15 +385,16 @@ class CustomEnvironment(gymnasium.Env):
                 # implemented to hinder coupled master to deliver - the leaving agv will cause a reset of the coupling process
                 if agv.coupling_master and agv.coupling_master != agv:  # masters got handled with above
                     if agv.coupling_master.is_coupling_complete():  # masters' coupling was completed (a slave will be removed now though)
-                        agv.coupling_master.command = 'coupling'    # resetting master to coupling (waiting for slaves)
+                        agv.coupling_master.command = 'coupling'  # resetting master to coupling (waiting for slaves)
                         agv.coupling_master.status = 'wait_for_coupling'
-                # implemented for agvs that are slaves of a waiting coupling master
+                    # implemented for agvs that are slaves of a waiting coupling master
                     '''if agv.coupling_master == self.coupling_master_at[agv.coupling_master.task_number]:  # if not there will be two masters and count_at will be figured out later
                                         self.agv_couple_count_at[agv.coupling_master.task_number] += 1'''
                     self.coupling_master_at[agv.coupling_master.task_number] = agv.coupling_master
-                    self.agv_couple_count_at[agv.coupling_master.task_number] += 1  # inconveniences will be resolved later anyways
-                agv.free_from_coupling()    # TODO it may happen that when several masters and their slaves leave a position the agv_couple_count_at become unsensible high
-                                            #  however, this isn't a significant issue (as soon as an agv gets assigned to the position as a master or several masters look for slaves the count will be reset to a sophisticated ammount)
+                    self.agv_couple_count_at[
+                        agv.coupling_master.task_number] += 1  # inconveniences will be resolved later anyways
+                agv.free_from_coupling()  # TODO it may happen that when several masters and their slaves leave a position the agv_couple_count_at become unsensible high
+                #  however, this isn't a significant issue (as soon as an agv gets assigned to the position as a master or several masters look for slaves the count will be reset to a sophisticated ammount)
                 agv.task_number = command_index
                 self.agv_positioning_at[command_index] = self.factory.get_agv_needed_for_product(product, agv)
                 if self.agv_positioning_at[command_index][0] > 1 or self.agv_positioning_at[command_index][
@@ -373,7 +408,7 @@ class CustomEnvironment(gymnasium.Env):
                 else:
                     agv.deliver(output_object, input_object, product)
 
-    def _couple_simple(self, agv, output_object):   # artefact function - todelete
+    def _couple_simple(self, agv, output_object):  # artefact function - todelete
         if self.agv_couple_count > 0:
             for agv in self.factory.agvs:
                 if agv.is_free:
@@ -408,7 +443,8 @@ class CustomEnvironment(gymnasium.Env):
                 '''if agv.coupling_master == self.coupling_master_at[agv.coupling_master.task_number]:  # if not there will be two masters and count_at will be figured out later
                                     self.agv_couple_count_at[agv.coupling_master.task_number] += 1'''
                 self.coupling_master_at[agv.coupling_master.task_number] = agv.coupling_master
-                self.agv_couple_count_at[agv.coupling_master.task_number] += 1  # inconveniences will be resolved later anyways
+                self.agv_couple_count_at[
+                    agv.coupling_master.task_number] += 1  # inconveniences will be resolved later anyways
             agv.free_from_coupling()
             agv.task_number = command_index
             count = 0
@@ -421,7 +457,7 @@ class CustomEnvironment(gymnasium.Env):
                         pos = [width, length]
                     count += 1
                     '''
-                # check whether spot is occupied
+                    # check whether spot is occupied
                     occ = False
                     for AGV in self.factory.agvs:
                         if AGV.coupling_master == self.coupling_master_at[command_index]:
@@ -431,7 +467,7 @@ class CustomEnvironment(gymnasium.Env):
                     if not occ:
                         pos = [width, length]
                         break
-                if pos != [0,0]:
+                if pos != [0, 0]:
                     break
             agv.coupling(self.coupling_master_at[command_index], pos, output_object=output_object)
             self.agv_couple_count_at[command_index] -= 1
@@ -440,7 +476,7 @@ class CustomEnvironment(gymnasium.Env):
             print("MISTAKE")
             self.coupling_at[command_index] = False
 
-    def master_prevention(self, agv):   # artefact function - todelete
+    def master_prevention(self, agv):  # artefact function - todelete
         if agv.coupling_master == agv:
             # return True
             # reduce the incapability by those that have no slaves
@@ -463,7 +499,7 @@ class CustomEnvironment(gymnasium.Env):
                     return
         for AGV in self.factory.agvs:
             if AGV.coupling_master == old_master and AGV != old_master:
-                if AGV.status == 'move_to_coupling_position':# (most likely) technically this condition is not needed
+                if AGV.status == 'move_to_coupling_position':  # (most likely) technically this condition is not needed
                     self.assign_new_master(old_master, AGV)
                     return
         self.coupling_master_at[old_master.task_number] = None  # if no slaves are found
@@ -475,7 +511,8 @@ class CustomEnvironment(gymnasium.Env):
         for slave in slave_list:
             slave.coupling_master = new_master  # assign AGV as new master
         new_master.coupling(new_master, [0, 0], old_master.agv_couple_count, old_master.output_object,
-                            old_master.input_object, old_master.target_product, self.agv_positioning_at[old_master.task_number])
+                            old_master.input_object, old_master.target_product,
+                            self.agv_positioning_at[old_master.task_number])
         new_master.status = 'move_to_coupling_position'
         new_master.move_target = old_master.move_target
         self.coupling_master_at[old_master.task_number] = new_master
@@ -489,8 +526,8 @@ class CustomEnvironment(gymnasium.Env):
             if agv.coupling_master == agv:
                 masters.append(agv)
                 master_tasks.append(agv.task_number)
-        for i in range(1,self.n_agv_commands):
-            if master_tasks.count(i) > 1:     # true if there are several masters with the same task
+        for i in range(1, self.n_agv_commands):
+            if master_tasks.count(i) > 1:  # true if there are several masters with the same task
                 masters_need_slaves = []
                 for task, master_agv in zip(master_tasks, masters):
                     if task == i:
@@ -515,39 +552,55 @@ class CustomEnvironment(gymnasium.Env):
                                         if len(m1_slaves) > 0:
                                             m1_slaves[-1].free_from_coupling()
                                             m1_slaves[-1].task_number = masters_need_slaves[1].task_number
-                                            self._couple(m1_slaves[-1], masters_need_slaves[1].output_object, masters_need_slaves[1].task_number)
-                                            if masters_need_slaves[1].will_coupling_be_complete():  # ensure everything worked and sort out env-variables
-                                                self.agv_couple_count_at[i] = masters_need_slaves[0].agv_couple_count - len(m1_slaves) + 1 # +1 for the removed slave
+                                            self._couple(m1_slaves[-1], masters_need_slaves[1].output_object,
+                                                         masters_need_slaves[1].task_number)
+                                            if masters_need_slaves[
+                                                1].will_coupling_be_complete():  # ensure everything worked and sort out env-variables
+                                                self.agv_couple_count_at[i] = masters_need_slaves[
+                                                                                  0].agv_couple_count - len(
+                                                    m1_slaves) + 1  # +1 for the removed slave
                                                 self.coupling_master_at[i] = masters_need_slaves[0]
                                             else:
-                                                print("MISTAKE: THERE WAS A MASTER ALTHOUGH A DIFFERENT MASTER WITH SAME TASK WAITED FOR MORE THAN ONE SLAVE TO BE ASSIGNED @1")
+                                                print(
+                                                    "MISTAKE: THERE WAS A MASTER ALTHOUGH A DIFFERENT MASTER WITH SAME TASK WAITED FOR MORE THAN ONE SLAVE TO BE ASSIGNED @1")
                                         else:
-                                            self.master_becomes_slave(masters_need_slaves[0], masters_need_slaves[1], i, len(m2_slaves))
+                                            self.master_becomes_slave(masters_need_slaves[0], masters_need_slaves[1], i,
+                                                                      len(m2_slaves))
                                     else:
                                         # assign a slave of m2 to m1
                                         if len(m2_slaves) > 0:
                                             m2_slaves[-1].free_from_coupling()
                                             m2_slaves[-1].task_number = masters_need_slaves[0].task_number
-                                            self._couple(m2_slaves[-1], masters_need_slaves[0].output_object, masters_need_slaves[0].task_number)
-                                            if masters_need_slaves[0].will_coupling_be_complete():  # ensure everything worked and sort out env-variables
-                                                self.agv_couple_count_at[i] = masters_need_slaves[1].agv_couple_count - len(m2_slaves) + 1 # +1 for the removed slave
+                                            self._couple(m2_slaves[-1], masters_need_slaves[0].output_object,
+                                                         masters_need_slaves[0].task_number)
+                                            if masters_need_slaves[
+                                                0].will_coupling_be_complete():  # ensure everything worked and sort out env-variables
+                                                self.agv_couple_count_at[i] = masters_need_slaves[
+                                                                                  1].agv_couple_count - len(
+                                                    m2_slaves) + 1  # +1 for the removed slave
                                                 self.coupling_master_at[i] = masters_need_slaves[1]
                                             else:
-                                                print("MISTAKE: THERE WAS A MASTER ALTHOUGH A DIFFERENT MASTER WITH SAME TASK WAITED FOR MORE THAN ONE SLAVE TO BE ASSIGNED @2")
+                                                print(
+                                                    "MISTAKE: THERE WAS A MASTER ALTHOUGH A DIFFERENT MASTER WITH SAME TASK WAITED FOR MORE THAN ONE SLAVE TO BE ASSIGNED @2")
                                         else:
-                                            self.master_becomes_slave(masters_need_slaves[1], masters_need_slaves[0], i, len(m1_slaves))
+                                            self.master_becomes_slave(masters_need_slaves[1], masters_need_slaves[0], i,
+                                                                      len(m1_slaves))
                                 else:  # both masters have no slaves (=> make second master slave of first)
                                     # self.master_becomes_slave(masters_need_slaves[1], masters_need_slaves[0], i, 0) # TODO when ensured @3 is not needed this instead of following code:
                                     masters_need_slaves[1].free_from_coupling()
                                     masters_need_slaves[1].task_number = masters_need_slaves[0].task_number
-                                    self.coupling_master_at[i] = masters_need_slaves[0]     # necessary before _couple()
-                                    self._couple(masters_need_slaves[1], masters_need_slaves[0].output_object, masters_need_slaves[0].task_number)
-                                    self.agv_couple_count_at[i] = masters_need_slaves[0].agv_couple_count - 1   # one slave got assigned (possibly not needed)
+                                    self.coupling_master_at[i] = masters_need_slaves[0]  # necessary before _couple()
+                                    self._couple(masters_need_slaves[1], masters_need_slaves[0].output_object,
+                                                 masters_need_slaves[0].task_number)
+                                    self.agv_couple_count_at[i] = masters_need_slaves[
+                                                                      0].agv_couple_count - 1  # one slave got assigned (possibly not needed)
                                     if masters_need_slaves[0].will_coupling_be_complete():  # should m1 in any case
                                         self.agv_couple_count_at[i] = 0
-                                        self.coupling_master_at[i] = None   # since one master is filled and other master became slave
+                                        self.coupling_master_at[
+                                            i] = None  # since one master is filled and other master became slave
                                     else:
-                                        print("MISTAKE: THERE WAS A MASTER ALTHOUGH A DIFFERENT MASTER WITH SAME TASK WAITED FOR MORE THAN ONE SLAVE TO BE ASSIGNED @3")
+                                        print(
+                                            "MISTAKE: THERE WAS A MASTER ALTHOUGH A DIFFERENT MASTER WITH SAME TASK WAITED FOR MORE THAN ONE SLAVE TO BE ASSIGNED @3")
 
     def master_becomes_slave(self, new_slave, new_master, i, masters_slave_count):
         new_slave.free_from_coupling()
@@ -560,14 +613,13 @@ class CustomEnvironment(gymnasium.Env):
             self.coupling_master_at[i] = None
 
     @staticmethod
-    def agv_is_master(self, agv):   # unused ? - todelete
+    def agv_is_master(self, agv):  # unused ? - todelete
         if agv.coupling_master == agv:
             return True
         return False
 
-    def _get_reward(self):  # TODO check whether reward function implementation still works and makes sense
+    def _get_reward(self):
         reward = 0
-        critical_conditions = 0
 
         # Reward for finishing product
         product_count = len(self.factory.warehouses[0].end_product_store)
@@ -576,43 +628,49 @@ class CustomEnvironment(gymnasium.Env):
             reward = 1
 
         # Reward for lowering priority
+        index = 0
         for machine in self.factory.machines:
             input_priority, output_priority = machine.get_buffer_status()
-            critical_conditions += input_priority
-            # critical_conditions += output_priority
-        if critical_conditions < self.last_critical_conditions:
-            reward += (self.last_critical_conditions - critical_conditions) * 1
-        self.last_critical_conditions = critical_conditions
+            if input_priority < self.last_machine_priority[index][0]:
+                reward += self.last_machine_priority[index][0] * 1/4
+            if output_priority < self.last_machine_priority[index][1]:
+                reward += self.last_machine_priority[index][1] * 1/4 # TODO for some reason I once ignored output_priority (old "wrong" reward implementation)
+            self.last_machine_priority[index][0] = input_priority
+            self.last_machine_priority[index][1] = output_priority
+            index += 1
+
+
 
         # Reward for when an AGV is at an output that holds at least one product ("good position")
         for AGV in self.factory.agvs:
-            try:    # TODO: (occasionally values that should be "defined" were "undefined" due to threading)
+            try:  # TODO: (occasionally values that should be "defined" were "undefined" due to threading)
                 prod_needed = False
                 if AGV.coupling_master:
                     prod_available = AGV.coupling_master.output_object.has_product(AGV.coupling_master.target_product)
-                    arrived = (AGV.command == 'follow_master' or AGV.status == 'wait_for_coupling' or AGV.status == 'master_slave_decision')
+                    arrived = (
+                            AGV.command == 'follow_master' or AGV.status == 'wait_for_coupling' or AGV.status == 'master_slave_decision')
                     if isinstance(AGV.coupling_master.input_object, Machine):
                         input_priority, output_priority = AGV.coupling_master.input_object.get_buffer_status()
                         prod_needed = False if input_priority <= 0 else True
-                else:   # rather irrelevant since product will be loaded immediately
+                else:  # rather irrelevant since product will be loaded immediately
                     prod_available = AGV.output_object.has_product(AGV.target_product)
                     arrived = (AGV.command == 'load_product')
                     if isinstance(AGV.input_object, Machine):
                         input_priority, output_priority = AGV.input_object.get_buffer_status()
                         prod_needed = False if input_priority <= 0 else True
                 if prod_available and arrived and prod_needed:
-                    if not AGV.is_moving() and id(AGV) not in self.GoodAGVs:
+                    if not AGV.is_moving and id(AGV) not in self.GoodAGVs:
                         reward += 0.1
                         self.GoodAGVs.append(id(AGV))
             except:
                 pass
 
             # Reward for being in a good position (to reinforce staying)
-            if not AGV.is_moving() and id(AGV) in self.GoodAGVs:
-                reward += 0.01 * self.time_step
+            if not AGV.is_moving and id(AGV) in self.GoodAGVs:
+                reward += 0.005 * self.time_step  # time payments should be scaled accordingly
 
             # Negative Reward for leaving a good positions (punishment)
-            if AGV.is_moving() and id(AGV) in self.GoodAGVs:
+            if AGV.is_moving and id(AGV) in self.GoodAGVs:
                 if AGV.coupling_master:
                     is_agv_delivering = (AGV.coupling_master.status == 'move_to_input')
                 else:
@@ -658,9 +716,9 @@ class CustomEnvironment(gymnasium.Env):
                     self.GoodAGVs.remove(id(AGV))
         '''
 
-    def all_agv_stand_still(self):      # artefact function - todelete
+    def all_agv_stand_still(self):  # artefact function - todelete
         for AGV in self.factory.agvs:
-            if AGV.is_moving():
+            if AGV.is_moving:
                 return False
         return True
 
@@ -670,7 +728,7 @@ class CustomEnvironment(gymnasium.Env):
                 return False
         return True
 
-    @staticmethod   # TODO: in use?
+    @staticmethod  # TODO: in use?
     def _unload_agv(agv, unloading):
         agv.unload(unloading)
 
@@ -693,17 +751,23 @@ class CustomEnvironment(gymnasium.Env):
                   self.factory.agvs[2].step_counter_last, self.factory.agvs[3].step_counter_last,
                   self.factory.agvs[4].step_counter_last, self.factory.agvs[5].step_counter_last)
 
-    def _simulate_factory_objects(self):    # perhaps change order
+    def _simulate_factory_objects(self):  # perhaps change order
+        index = 0
         for agv in self.factory.agvs:
             agv.step(self.time_step, self.step_counter)
+            self.agv_free_history[index].append(agv.is_free)
+            index += 1
 
         # IMPORTANT when AGV don't run on threads
         self._simulate_agvs_without_threading()
 
         for warehouse in self.factory.warehouses:
             warehouse.step(self.time_step)
+        index = 0
         for machine in self.factory.machines:
             machine.step(self.time_step)
+            self.machine_status_history[index].append(machine.status)
+            index += 1
 
     def _simulate_agvs_without_threading(self):
         # simulate masters first
@@ -728,12 +792,12 @@ class CustomEnvironment(gymnasium.Env):
         else:
             plt.clf()
             plt.title('Running...')
-        plt.xlabel('Time in '+str(self.time_step)+'s Steps')
+        plt.xlabel('Time in ' + str(self.time_step) + 's Steps')
         plt.ylabel('Products')
         plt.plot(self.end_product_count, label='Finished Products', color='b', linewidth=3, linestyle=':')
         plt.plot(self.reward_history, label='Reward', color='g', linewidth=2)
         plt.legend()
-        plt.pause(0.01)  # pause required for constructor
+        plt.pause(0.05)  # pause required for constructor
         if is_ipython:
             if not show_result:
                 display.display(plt.gcf())
@@ -797,18 +861,102 @@ class CustomEnvironment(gymnasium.Env):
         pygame.display.flip()
 
 
+def sb_train_variation():
+    # flipped_actions means that action 1 = agent 1 drive to 1, action 2 = agent 2 drive to 1...
+    episodes = 8
+    episode_length = 1024
+
+    trial = "_1"
+    save_folder = "./data/flipped_actions/A2C_tests/"
+    save_name_start = "A2C_1s_" + str(episodes) + "x" + str(episode_length) + "_"
+    save_name_end = "_no_threading"
+
+    for i in range(11):
+        folder_spes = "gamma/"
+        gamma = 0.99 + 0.001 * i
+        folder_spes += "gamma" + str(gamma) + "/"
+        create_folder(save_folder + folder_spes)
+        id_name = "gamma" + str(gamma)
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path,var_save_name=save_name)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=gamma, device="cpu")
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        env.close()
+        time.sleep(1)
+
+    for i in range(51):
+        folder_spes = "learning_rate/"
+        learning_rate = 0.00001 * (1 + i) * (10 ^ int(i / 10))
+        save_folder += "learning_rate" + str(learning_rate) + "/"
+        create_folder(save_folder + folder_spes)
+        id_name = "learning_rate" + str(learning_rate)
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.A2C('MlpPolicy', env=env, verbose=1, learning_rate=learning_rate, device="cpu")
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        env.close()
+        time.sleep(1)
+
+    for i in range(20):
+        folder_spes = "n_steps/"
+        n_steps = int(i+1)
+        save_folder += "n_steps" + str(n_steps) + "/"
+        create_folder(save_folder + folder_spes)
+        id_name = "n_steps" + str(n_steps)
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.A2C('MlpPolicy', env=env, verbose=1, n_steps=n_steps, device="cpu")
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        env.close()
+        time.sleep(1)
+
+    for i in range(31):
+        folder_spes = "rms_prop_eps/"
+        rms_prop_eps = 0.001 * (1 + i) * (10 ^ int(i / 10))
+        save_folder += "rms_prop_eps" + str(rms_prop_eps) + "/"
+        create_folder(save_folder + folder_spes)
+        id_name = "rms_prop_eps" + str(rms_prop_eps)
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.A2C('MlpPolicy', env=env, verbose=1, rms_prop_eps=rms_prop_eps, device="cpu")
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        env.close()
+        time.sleep(1)
+
+
+def create_folder(save_folder):
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+
+
 def sb_train():
-    env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
+    env = CustomEnvironment(render=False)  # True for display (creates the factory display window)
     env.reset()
-    model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99)
-    model = sb.PPO.load("./data/flipped_actions/PPO_1s_64x2048_1.7_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu")
+    #model = sb.A2C.load("./data/flipped_actions/A2C_1s_64x2048_4.8_no_threading.zip", env=env, verbose=1, gamma=0.99)  # for DQN: exploration_initial_eps=0.002, exploration_final_eps=0.001,
     # print(model.policy)
 
-    save_name_start = "./data/flipped_actions/PPO_1s_64x2048_1."
+    save_name_start = "./data/flipped_actions/ToDelete"
     save_name_end = "_no_threading.zip"
-    for i in range(8,21):
+    for i in range(9):
         save_name = save_name_start + str(i) + save_name_end
-        model.learn(64 * 2048)
+        model.learn(64 * 2048)  # !CAUTION! Make sure episode length is set right in step()
         model.save(save_name)
 
     # model.learn(128 * 2 * 2048)
@@ -817,11 +965,11 @@ def sb_train():
     env.close()
 
 
-def sb_run_model():  # TODO (As of now this does not function)
+def sb_run_model():
     env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
     env.reset()
     # model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99)
-    model = sb.PPO.load("./data/flipped_actions/PPO_1s_64x2048_VERY_GOOD_MODEL_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    model = sb.PPO.load("./data/flipped_actions/ToDelete8_no_threading.zip", env=env, verbose=1, gamma=0.99)
 
     vec_env = model.get_env()
     obs = vec_env.reset()
@@ -835,7 +983,7 @@ def custom_sb_train():
     env.reset()
     policy_kwargs = dict(activation_fn=th.nn.ReLU,
                          net_arch=dict(pi=[32, 32, 32, 32, 32], vf=[32, 32, 32, 32, 32]))
-    model = sb.PPO('MlpPolicy', env=env, policy_kwargs=policy_kwargs,verbose=1, gamma=0.99)
+    model = sb.PPO('MlpPolicy', env=env, policy_kwargs=policy_kwargs, verbose=1, gamma=0.99)
     # model = sb.PPO.load("./data/flipped_actions/5x32/custom_PPO_1s_64x2048_1.2_no_threading.zip", env=env, verbose=1, gamma=0.99)
     # print(model.policy)
     save_name_start = "./data/flipped_actions/5x32/custom_PPO_1s_64x2048_1."
@@ -858,9 +1006,9 @@ def custom_train():
     ml_agent = RainbowLearning(state_d=env.observation_space.shape[0], action_d=env.action_space.n, net=net, lr=1e-3,
                                gamma=0.95, memory_size=1000, batch_size=256, alpha=0.2, beta=0.6, prior_eps=1e-6,
                                target_update=100, std_init=0.5, n_step=4, v_min=0, v_max=200)
-    episodes = 2 * 2048                                                     # defines number of training episodes
-    save_interval = math.inf                                                 # defines the saving rate (episodes)
-    max_steps = 2048                                                   # defines episode lengths
+    episodes = 2 * 2048  # defines number of training episodes
+    save_interval = math.inf  # defines the saving rate (episodes)
+    max_steps = 2048  # defines episode lengths
     ml_agent.load("flipped_actions/Rainbow_RN_all64_at.size20__1s_64x2048_tr.freq.128__1.2_no_threading")
 
     highscore = -math.inf
@@ -882,10 +1030,10 @@ def custom_train():
             steps += 1
             env.step_start_time = time.time()
             # action_index = ml_agent.get_action_without_state()          # why?
-            action_index = ml_agent.get_action(env.create_obs())        # added this line to replace the one above
+            action_index = ml_agent.get_action(env.create_obs())  # added this line to replace the one above
             new_state, reward, done, _, info = env.step(action_index)
             # actions.append(action_index)                                # for monitoring
-            if steps >= max_steps:                                       # should rather be in env.step()?
+            if steps >= max_steps:  # should rather be in env.step()?
                 done = True
 
                 env.reset()  # env reset required when terminating(?)
@@ -914,7 +1062,7 @@ def custom_train():
             env.end_product_count = []
             env.reward_history = []
 
-        if accu_reward > highscore:                                     # save the NN that achieved the highest score
+        if accu_reward > highscore:  # save the NN that achieved the highest score
             ml_agent.save("flipped_actions/Rainbow_RN_all64_at.size20__1s_64x2048_tr.freq.128__Highscore_no_threading")
             highscore = accu_reward
     env.close()
@@ -922,6 +1070,7 @@ def custom_train():
 
 def custom_run_model():  # TODO
     pass
+
 
 def test():
     env = CustomEnvironment(render=True)
@@ -986,9 +1135,9 @@ def test2():
 def test2_helper(env, delivery):
     all_done = True
     for i in range(env.n_agv):
-        if env.factory.agvs[i].task_number == delivery-1 or (env.factory.agvs[i].task_number == 4 and delivery == 1):
+        if env.factory.agvs[i].task_number == delivery - 1 or (env.factory.agvs[i].task_number == 4 and delivery == 1):
             if env.factory.agvs[i].is_free:
-                env.step(delivery * env.n_agv + i)     # for flipped commands
+                env.step(delivery * env.n_agv + i)  # for flipped commands
                 all_done = False
                 break
     if all_done:
@@ -1000,10 +1149,23 @@ def test2_helper(env, delivery):
 if __name__ == '__main__':
     print("Cuda is available: " + str(torch.cuda.is_available()))
 
+    '''
+    # arr = np.load("./data/flipped_actions/A2C_tests/gamma/gamma0.99/A2C_1s_8x1024_gamma0.99_1_no_threading_reward_history.npy")
+    # arr = np.load("./data/flipped_actions/A2C_tests/gamma/gamma0.99/A2C_1s_8x1024_gamma0.99_1_no_threading_end_product_counts.npy")
+    arr = np.load("./data/flipped_actions/A2C_tests/gamma/gamma0.99/A2C_1s_8x1024_gamma0.99_1_no_threading_machine_status_history.npy")
+    # arr = np.load("./data/flipped_actions/A2C_tests/gamma/gamma0.99/A2C_1s_8x1024_gamma0.99_1_no_threading_agv_free_history.npy")
+    print(arr)
+
+    arr = arr.tolist()
+    print(arr)
+    '''
+
     # sb_train()
+    sb_train_variation()   # episode länge anpassen
     # sb_run_model()
     # custom_sb_train()
-    custom_train()
-    custom_run_model()  # TODO
+
+    # custom_train()
+    # custom_run_model()  # TODO
     # test()
     # test2()
