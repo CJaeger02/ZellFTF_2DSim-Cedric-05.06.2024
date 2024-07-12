@@ -44,7 +44,7 @@ class AGV:
         # TODO integrate a threading attribute (related to 'def run_with_threads(self):'-TODO)
         self.thread_running = True
         self.thread_waiting = True
-        self.time_step = 0.0
+        self.time_step = 1.0
         self.waited_time = 0.0
         self.sleep_time = 0.00001
         # self.run_thread = threading.Thread(target=self.run_with_threads)
@@ -163,20 +163,23 @@ class AGV:
 
     def move_state(self):
         self.is_moving = True
+
+        speed = self.max_speed
+        if self.coupling_master == self and self.status != 'move_to_coupling_position':
+            speed = self.couple_speed
+        if self.loaded_product is not None:
+            if self.load_speed < speed:
+                speed = self.load_speed
+
         move_vector = [self.move_target[0] - self.pos_x, self.move_target[1] - self.pos_y]
         distance = math.sqrt(math.pow(move_vector[0], 2) + math.pow(move_vector[1], 2))
-        if distance < 1:    # TODO [inelegant] value has to equal time_step of main prog. (1 m/s * t = VALUE(t) m)
+        if distance < (speed * self.time_step):
             self.pos_x = self.move_target[0]
             self.pos_y = self.move_target[1]
             return True
+
         norm = 1 / distance
         move_vector = [norm * move_vector[0], norm * move_vector[1]]
-        if self.coupling_master == self:
-            speed = self.couple_speed
-        elif self.loaded_product is not None:
-            speed = self.load_speed
-        else:
-            speed = self.max_speed
         distance_vector = [move_vector[0] * speed * self.time_step, move_vector[1] * speed * self.time_step]
         self.pos_x += distance_vector[0]
         self.pos_y += distance_vector[1]
@@ -270,12 +273,16 @@ class AGV:
                 self.command = 'follow_master'
                 # for RL
                 self.is_free = True  # enables NN to direct AGVs somewhere else HAS TO BE AFTER 'following_master'
-                self.status = 'idle'
+                self.status = 'waiting_with_master'
         elif self.status == 'wait_for_coupling':
             if self.is_coupling_complete():  # only master
                 self.command = 'deliver'
                 # self.status = 'idle'  # TODO reactivate if possible (does this line break anything?)
                 self.status = 'load_product'
+                for agv in self.factory.agvs:
+                    if agv.coupling_master == self:
+                        if agv != self:
+                            agv.status = "idle"
 
     def will_coupling_be_complete(self):
         slave_count = 0

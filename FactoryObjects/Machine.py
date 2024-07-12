@@ -147,7 +147,7 @@ class Machine:
         elif len(self.buffer_input_load) == 0:
             # If buffer is empty
             input_priority = 3
-            if self.rest_process_time == self.process_time:
+            if self.status == "idle":
                 # If buffer
                 input_priority = 4
 
@@ -157,7 +157,7 @@ class Machine:
             output_priority = 2
         elif len(self.buffer_output_load) == self.buffer_output[0]:
             output_priority = 3
-            if self.rest_process_time == 0.0:
+            if self.status == 'blocked':
                 output_priority = 4
         return input_priority, output_priority
 

@@ -4,7 +4,7 @@ from MachineLearning.NoisyNetwork import NoisyLinear
 
 
 class RainbowNetwork(torch.nn.Module):
-    def __init__(self, in_dim: int, out_dim: int,  atom_size: int = 20, support=1, std_init: float = 0.5):
+    def __init__(self, in_dim: int, out_dim: int,  atom_size: int = 31, support=1, std_init: float = 0.5):
         """Initialization."""
         super(RainbowNetwork, self).__init__()
         self.out_dim = out_dim
@@ -13,18 +13,18 @@ class RainbowNetwork(torch.nn.Module):
 
         # set common feature layer
         self.feature_layers = torch.nn.Sequential(
-            torch.nn.Linear(in_dim, 64),
+            torch.nn.Linear(in_dim, 128),
             torch.nn.LeakyReLU(),
-            torch.nn.Linear(64, 64),
+            torch.nn.Linear(128, 256),  # TODO Warum hiernach kein ReLU()?
         )
 
         # set advantage layer
-        self.advantage_hidden_layer = NoisyLinear(64, 64, std_init)
-        self.advantage_layer = NoisyLinear(64, self.out_dim * self.atom_size)
+        self.advantage_hidden_layer = NoisyLinear(256, 256, std_init)
+        self.advantage_layer = NoisyLinear(256, self.out_dim * self.atom_size)
 
         # set value layer
-        self.value_hidden_layer = NoisyLinear(64, 64, std_init)
-        self.value_layer = NoisyLinear(64, self.atom_size)
+        self.value_hidden_layer = NoisyLinear(256, 256, std_init)
+        self.value_layer = NoisyLinear(256, self.atom_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward method implementation."""
@@ -56,7 +56,7 @@ class RainbowNetwork(torch.nn.Module):
 
     def save(self, file_name='model'):
         file_name = file_name + '.pth'
-        model_folder_path = './models'
+        model_folder_path = '.\models'
         if not os.path.exists(model_folder_path):
             os.makedirs(model_folder_path)
         file_name = os.path.join(model_folder_path, file_name)
@@ -69,9 +69,22 @@ class RainbowNetwork(torch.nn.Module):
         if os.path.exists(file_name):
             self.load_state_dict(torch.load(file_name))
 
+class RainbowNetworkSmall(RainbowNetwork):
+    def __init__(self, in_dim: int, out_dim: int, atom_size: int = 31, support=1, std_init: float = 0.5):
+        super(RainbowNetworkSmall, self).__init__(in_dim, out_dim, atom_size, support, std_init)
+
+        # set common feature layer
+        self.feature_layers = torch.nn.Sequential(
+            torch.nn.Linear(in_dim, 64),
+            torch.nn.LeakyReLU(),
+            torch.nn.Linear(64, 64),
+            torch.nn.LeakyReLU(),
+            torch.nn.Linear(64, 256),
+        )
+
 
 class RainbowNetworkMid(RainbowNetwork):
-    def __init__(self, in_dim: int, out_dim: int, atom_size: int = 20, support=1, std_init: float = 0.5):
+    def __init__(self, in_dim: int, out_dim: int, atom_size: int = 31, support=1, std_init: float = 0.5):
         super(RainbowNetworkMid, self).__init__(in_dim, out_dim, atom_size, support, std_init)
 
         # set common feature layer
@@ -87,7 +100,7 @@ class RainbowNetworkMid(RainbowNetwork):
 
 
 class RainbowNetworkLarge(RainbowNetwork):
-    def __init__(self, in_dim: int, out_dim: int, atom_size: int = 20, support=1, std_init: float = 0.5):
+    def __init__(self, in_dim: int, out_dim: int, atom_size: int = 31, support=1, std_init: float = 0.5):
         super(RainbowNetworkLarge, self).__init__(in_dim, out_dim, atom_size, support, std_init)
 
         # set common feature layer
@@ -109,7 +122,7 @@ class RainbowNetworkLarge(RainbowNetwork):
 
 
 class RainbowCnnNetwork(torch.nn.Module):
-    def __init__(self, in_dim: int, out_dim: int, support=1, atom_size=20):
+    def __init__(self, in_dim: int, out_dim: int, support=1, atom_size=31):
         """Initialization."""
         super(RainbowCnnNetwork, self).__init__()
         self.out_dim = out_dim
@@ -204,4 +217,3 @@ class RainbowCnnNetwork(torch.nn.Module):
         file_name = os.path.join(model_folder_path, file_name)
         if os.path.exists(file_name):
             self.load_state_dict(torch.load(file_name))
-

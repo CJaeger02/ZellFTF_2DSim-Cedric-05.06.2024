@@ -35,6 +35,8 @@ class Factory:
         self.create_default_product_types()
         self.products_id_count = 1000  # Product id's will start upwards with 1000
 
+        self.time_step = 1.0
+
         # self.create_temp_factory_machines()
         # self.create_temp_factory_machines_2()
 
@@ -178,21 +180,27 @@ class Factory:
 
         self.agvs.append(AGV([0, 4]))
         self.agvs[0].factory = self
+        self.agvs[0].time_step = self.time_step
 
         self.agvs.append(AGV([0, 5]))
         self.agvs[1].factory = self
+        self.agvs[1].time_step = self.time_step
 
         self.agvs.append(AGV([0, 6]))
         self.agvs[2].factory = self
+        self.agvs[2].time_step = self.time_step
 
         self.agvs.append(AGV([0, 7]))
         self.agvs[3].factory = self
+        self.agvs[3].time_step = self.time_step
 
         self.agvs.append(AGV([5, 9]))
         self.agvs[4].factory = self
+        self.agvs[4].time_step = self.time_step
 
         self.agvs.append(AGV([6, 9]))
         self.agvs[5].factory = self
+        self.agvs[5].time_step = self.time_step
 
         self.loading_stations.append(LoadingStation())
         self.loading_stations[0].pos_x = 0
@@ -297,27 +305,35 @@ class Factory:
         '''
         self.agvs.append(AGV([14, 14]))
         self.agvs[0].factory = self
+        self.agvs[0].time_step = self.time_step
 
         self.agvs.append(AGV([13, 14]))
         self.agvs[1].factory = self
+        self.agvs[1].time_step = self.time_step
 
         self.agvs.append(AGV([12, 14]))
         self.agvs[2].factory = self
+        self.agvs[2].time_step = self.time_step
 
         self.agvs.append(AGV([11, 14]))
         self.agvs[3].factory = self
+        self.agvs[3].time_step = self.time_step
 
         self.agvs.append(AGV([10, 14]))
         self.agvs[4].factory = self
+        self.agvs[4].time_step = self.time_step
 
         self.agvs.append(AGV([9, 14]))
         self.agvs[5].factory = self
+        self.agvs[5].time_step = self.time_step
 
         self.agvs.append(AGV([8, 14]))
         self.agvs[6].factory = self
+        self.agvs[6].time_step = self.time_step
 
         self.agvs.append(AGV([7, 14]))
         self.agvs[7].factory = self
+        self.agvs[7].time_step = self.time_step
 
 
         self.loading_stations.append(LoadingStation())
