@@ -29,7 +29,7 @@ if is_ipython:
 
 class CustomEnvironment(gymnasium.Env):
     def __init__(self, render=False, variation_training=False, var_save_path=None, var_save_name=None, timestep=1.0,
-                 adjust_ep_len=False, reward=1, episode_length=2048):
+                 adjust_ep_len=False, reward=1, episode_length=2048, rainbow_algo=False, reward_fac=1):
         super(CustomEnvironment, self).__init__()
         self.agv_positioning = None
         self.coupling_command = None
@@ -105,6 +105,8 @@ class CustomEnvironment(gymnasium.Env):
         self.restart_logger = []
         self.reward_edit = reward
         self.episode_length = episode_length
+        self.running_rainbow = rainbow_algo
+        self.reward_factor = reward_fac
 
     def plot_threading(self):
         plt.ion()  # Turn on interactive mode
@@ -194,9 +196,9 @@ class CustomEnvironment(gymnasium.Env):
             self.display_colors()
             time.sleep(0.0025)  # necessary  delay to regulate run speed
 
-
         # used for SB-learning (e.g. PPO)
-        #truncated = self.sb3_step_completion()
+        if not self.running_rainbow:
+            truncated = self.sb3_step_completion()
         # "!truncated is used when "time limit" is hit AND time is not part of the observation space, else terminated!"
 
         return self._create_observation(), reward, terminated, truncated, {'info': "Nothing"}
@@ -627,7 +629,7 @@ class CustomEnvironment(gymnasium.Env):
         # Reward for finishing product
         product_count = len(self.factory.warehouses[0].end_product_store)
         if product_count > self.last_end_product_count:
-            reward += (product_count - self.last_end_product_count)
+            reward += (product_count - self.last_end_product_count) * self.reward_factor
             self.last_end_product_count = product_count
 
 
@@ -649,9 +651,9 @@ class CustomEnvironment(gymnasium.Env):
         for machine in self.factory.machines:
             input_priority, output_priority = machine.get_buffer_status()
             if input_priority < self.last_machine_priority[index][0]:
-                reward += self.last_machine_priority[index][0] * 1/divIn
+                reward += self.last_machine_priority[index][0] * 1/divIn * self.reward_factor
             if output_priority < self.last_machine_priority[index][1]:
-                reward += self.last_machine_priority[index][1] * 1/divOut # TODO for some reason I once ignored output_priority (old "wrong" reward implementation)
+                reward += self.last_machine_priority[index][1] * 1/divOut * self.reward_factor# TODO for some reason I once ignored output_priority (old "wrong" reward implementation)
             self.last_machine_priority[index][0] = input_priority
             self.last_machine_priority[index][1] = output_priority
             index += 1
@@ -851,12 +853,13 @@ def sb_train_variation():
     # flipped_actions means that action 1 = agent 1 drive to 1, action 2 = agent 2 drive to 1...
     episodes = 512
     episode_length = 2048
-
+    gamma = 0.99
     trial = "_1"
     save_folder = "./data/flipped_actions/A2C_tests/"
     save_name_start = "A2C_1s_" + str(episodes) + "x" + str(episode_length) + "_"
     save_name_end = "_no_threading" # "_adjusted_episode_length__no_threading"
 
+    '''
     episodes = 512
     repetition = 16
     folder_spes = "train_len/"
@@ -877,7 +880,40 @@ def sb_train_variation():
         time.sleep(0.25)
     env.close()
     time.sleep(1)
+    '''
 
+    for i in [1]:
+        folder_spes = "timestep1.0_2/"
+        create_folder(save_folder + folder_spes)
+        id_name = ""
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=gamma, device="cpu")
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        env.close()
+        time.sleep(1)
+    '''
+    save_folder = "./data/flipped_actions/reward_variation/PPO_tests/"
+    save_name_start = "PPO_1s_" + str(episodes) + "x" + str(episode_length) + "_"
+    for i in [10]:
+        folder_spes = "default/" + "reward_factor" + str(i) + "/"
+        create_folder(save_folder + folder_spes)
+        id_name = "reward_factor" + str(i)
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name, reward_fac=i)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=gamma, device="cpu")
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        env.close()
+        time.sleep(1)
+    '''
 
     '''
     for i in range(11):
@@ -1037,7 +1073,7 @@ def sb_train():
     save_name_end = "_no_threading.zip"
     for i in range(1):
         save_name = save_name_start + str(i) + save_name_end
-        model.learn(512* 2048)  # !CAUTION! Make sure episode length is set right in step()
+        model.learn(512 * 2048)  # !CAUTION! Make sure episode length is set right in step()
         model.save(save_name)
 
     # model.learn(128 * 2 * 2048)
@@ -1050,13 +1086,18 @@ def sb_run_model():
     env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
     env.reset()
     # model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99)
-    model = sb.DQN.load("data/flipped_actions/Old Nets/DQN_1s_256x4096_1.13_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    model = sb.DQN.load("data/flipped_actions/DQN_tests/timestep/timestep1.0/DQN_1s_512x2048_timestep1.0_seed337_2_no_threading.zip", env=env, verbose=1, gamma=0.99)
 
     vec_env = model.get_env()
     obs = vec_env.reset()
     while True:
-        action, _states = model.predict(obs, deterministic=True)
-        obs, reward, done, _, info = env.step(action)
+        accu_reward = 0
+        for e in range(2048):
+            action, _states = model.predict(obs, deterministic=True)
+            obs, reward, done, _, info = env.step(action)
+            accu_reward += reward
+        print("Episode",str(e+1),", reward sum: "+str(accu_reward))
+
 
 
 def custom_sb_train():
@@ -1070,7 +1111,7 @@ def custom_sb_train():
     save_name_start = "./data/flipped_actions/5x32/custom_PPO_1s_64x2048_1."
     save_name_end = "_no_threading.zip"
     for i in range(21):
-        save_name = save_name_start + str(i) + save_name_end
+        save_name = save_name_start + str(i+1) + save_name_end
         model.learn(64 * 2048)
         model.save(save_name)
 
@@ -1087,18 +1128,18 @@ def custom_train():
     #ml_agent.load("flipped_actions/Rainbow_RN_all64_at.size20__1s_64x2048_tr.freq.128__1.2_no_threading")
 
     highscore = -math.inf
-    save_folder = "flipped_actions/Rainbow_DQN/RainbowNetworkSmall/no_data"
+    save_folder = "flipped_actions/Rainbow_DQN/RainbowNetworkSmall/default_parameters_updatefreq_4"
     create_folder("models/" + save_folder)
     save_name_start = "RainbowNetworkSmall_1s_defaultParameters_" + str(episodes) + "x" + str(max_steps) + "_"
     save_name_end = "episodes_trail3"
-    save_i = 0
+    save_i = 1
 
-    env = CustomEnvironment(render=True, variation_training=True, var_save_path=("models/" + save_folder + "/"),
-                            var_save_name=(save_name_start + save_name_end))  # True for display (creates the factory display window)
+    env = CustomEnvironment(render=False, variation_training=True, var_save_path=("models/" + save_folder + "/"),
+                            var_save_name=(save_name_start + save_name_end), rainbow_algo=True)  # True for display (creates the factory display window)
     # env.display_colors()
     net = MachineLearning.RainbowNetwork.RainbowNetworkSmall
     ml_agent = RainbowLearning(state_d=env.observation_space.shape[0], action_d=env.action_space.n, net=net)
-
+    #ml_agent.load("models/flipped_actions/Rainbow_DQN/RainbowNetworkSmall/default_parameters_updatefreq_256/RainbowNetworkSmall_1s_defaultParameters_8x2048_63episodes_trail3.pth")
     repetitions = 1
     for e in range(episodes * repetitions):
         steps = 0
@@ -1120,19 +1161,25 @@ def custom_train():
             if steps >= max_steps:  # should rather be in env.step()?
                 done = True
                 #print(e)
-
+                print("Produced products:", str(env.end_product_count))
                 env.reset()  # env reset required when terminating(?)
                 env.step_counter = 0
 
             ml_agent.add_memory_data(new_state, reward, done)
             accu_reward += reward
             # rewards.append(reward)                                      # for monitoring
-            ml_agent.train()
+            if steps % 4 == 0:
+                ml_agent.train()
+            '''
+            else:
+                ml_agent.reset_noise()
+            '''
 
         #ml_agent.train()
         sys.stdout.write(
             "\r" + "Epoch: " + str(e + 1) + " Score: " + str(accu_reward) + " last steps: " + str(steps) +
             " fps: " + str(max_steps / (time.time() - ep_start_time)) + "\n")
+
         # print(actions)                                                  # for monitoring
         # print(rewards)                                                  # for monitoring
         #if e % save_interval == save_interval - 1:
@@ -1146,8 +1193,10 @@ def custom_train():
             # env.end_product_count = []
             # env.reward_history = []
 
+
         if accu_reward > highscore:  # save the NN that achieved the highest score
             ml_agent.save(save_folder + save_name_start + "__Highscore")
+            print("highscore: " + str(accu_reward))
             highscore = accu_reward
 
     env.close()
@@ -1158,7 +1207,7 @@ def custom_run_model():  # TODO
     env.display_colors()
     net = MachineLearning.RainbowNetwork.RainbowNetworkSmall
     ml_agent = RainbowLearning(state_d=env.observation_space.shape[0], action_d=env.action_space.n, net=net, std_init=0)
-    ml_agent.load("models/flipped_actions/Rainbow_DQN/RainbowNetworkSmall/no_data/default_parametersRainbowNetworkSmall_1s_defaultParameters_6x2048___Highscore.pth")
+    ml_agent.load("models/flipped_actions/Rainbow_DQN/RainbowNetworkSmall/default_parameters_updatefreq_256/RainbowNetworkSmall_1s_defaultParameters_8x2048_63episodes_trail3.pth")
 
 
     state = env.reset()
@@ -1248,42 +1297,56 @@ def test2_helper(env, delivery):
 
 def extract_collected_data():
     # Load the .npy file
-    np_array = np.load('data/flipped_actions/DQN_tests/train_len/train_len16x512x4096_2/DQN_1s_512x4096_train_len_16x512x4096_target_update_interval=1000__2_no_threading_end_product_counts.npy')
-    reset_np_array = np.load('data/flipped_actions/DQN_tests/train_len/train_len16x512x4096_2/DQN_1s_512x4096_train_len_16x512x4096_target_update_interval=1000__2_no_threading_restart_history.npy')
-    '''
+    np_array = np.load('data/flipped_actions/A2C_tests/train_len/train_len16x512x2048_1/A2C_1s_512x2048_train_len_16x512x2048_1_no_threading_end_product_counts.npy')
+    reset_np_array = np.load('data/flipped_actions/A2C_tests/train_len/train_len16x512x2048_1/A2C_1s_512x2048_train_len_16x512x2048_1_no_threading_restart_history.npy')
+
+    excel_file_name = 'tempLongA2CTraining.xlsx'
+    # extract reward in each timestep to excel sheet
+    reward_np_array = np.load("data/flipped_actions/A2C_tests/train_len/train_len16x512x2048_1/A2C_1s_512x2048_train_len_16x512x2048_1_no_threading_reward_history.npy")
+
     # Define the maximum number of rows per sheet
     max_rows_per_sheet = 1048575
 
     # Calculate the number of sheets needed
-    num_sheets = len(np_array) // max_rows_per_sheet + 1
-
-    # Create a Pandas Excel writer using openpyxl as the engine
-    with pd.ExcelWriter('temp.xlsx', engine='openpyxl') as writer:
+    num_sheets = len(reward_np_array) // max_rows_per_sheet + 1
+    print("sheets:",num_sheets,"total_datapoints:",len(reward_np_array))
+    with pd.ExcelWriter(excel_file_name, engine='openpyxl') as writer:
         for i in range(num_sheets):
             start_row = i * max_rows_per_sheet
-            end_row = min((i + 1) * max_rows_per_sheet, len(np_array))
-            chunk_df = pd.DataFrame(np_array[start_row:end_row], columns=['Numbers'])
+            end_row = min((i + 1) * max_rows_per_sheet, len(reward_np_array))
+            chunk_df = pd.DataFrame(reward_np_array[start_row:end_row])
             sheet_name = f'Sheet{i+1}'
             chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
             print(f"Chunk {i+1} written to {sheet_name}")
-
     print("All data has been successfully written to Excel.")
-
     '''
+    # machine status
+    # Extract the first list from the 2D np_array
+    first_list = np_array[0]  # Assuming np_array has shape (n, m), and we need np_array[0]
 
+    # Map the string values to numbers
+    status_mapping = {"idle": 0, "process": 1, "blocked": 2}
+    mapped_values = np.array([status_mapping[status] for status in first_list])
+
+    # Calculate the number of sheets needed
+    num_sheets = len(mapped_values) // max_rows_per_sheet + 1
+
+    # Write the data to Excel
+    with pd.ExcelWriter(excel_file_name, engine='openpyxl') as writer:
+        for i in range(num_sheets):
+            start_row = i * max_rows_per_sheet
+            end_row = min((i + 1) * max_rows_per_sheet, len(mapped_values))
+            chunk_df = pd.DataFrame(mapped_values[start_row:end_row], columns=['Machine Status'])
+            sheet_name = f'Sheet{i + 1}'
+            chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
+            print(f"Chunk {i + 1} written to {sheet_name}")
+    print("All data has been successfully written to Excel.")
+    '''
     normal_array = np_array.tolist()
     reset_array = reset_np_array.tolist()
 
     '''
-    # for tests with >2048 condition
-    for i in range(2046,2051):
-        end_prod = normal_array[i]
-        print(end_prod)
-        # assert end_prod >= normal_array[i*2049-1], print(i)
-        #assert normal_array[i*2049-1] == 0, print(i)
-    #print(normal_array[-1])
-    '''
-
+    # extract value at end of time step (e. g. end product count)
     for i in range(len(reset_array)-1):
         if reset_array[i]:
             # print(i)
@@ -1293,7 +1356,31 @@ def extract_collected_data():
 
     # print(max(normal_array))
     '''
+
+    '''
+    # old end product extraction
+    for i in range(1,512):
+        print(normal_array[i*2049-2])
+        assert normal_array[i * 2049 - 1] == 0, print(i)
+    print(normal_array[-1])
     
+    #ensure no mistakes
+    for i in range(1,512):
+        for j in range(500):
+            assert normal_array[i * 2049 - 3 - j] <= normal_array[i * 2049 - 2], print(i)
+        print(i)
+    '''
+    '''
+    # for tests with >2048 condition
+    for i in range(2046,2051):
+        end_prod = normal_array[i]
+        print(end_prod)
+        # assert end_prod >= normal_array[i*2049-1], print(i)
+        #assert normal_array[i*2049-1] == 0, print(i)
+    #print(normal_array[-1])
+    '''
+    '''
+    # extract discounted reward sum per episode
     discount = 1
     _ep_rew = 0
     for i in range(len(reset_array)-1):
@@ -1327,9 +1414,9 @@ if __name__ == '__main__':
     # sb_run_model()
     # custom_sb_train()
 
-    custom_train()
+    #custom_train()
     # custom_run_model()  # TODO
     # test()
     # test2()
 
-    #  extract_collected_data()
+    extract_collected_data()
