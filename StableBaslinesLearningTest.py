@@ -1187,13 +1187,13 @@ def custom_sb_train():
 
 
 def custom_train():
-    episodes = 1  # defines number of training episodes
-    save_interval = math.inf  # defines the saving rate (episodes)
+    episodes = 46  # defines number of training episodes
+    save_interval = 4  # defines the saving rate (episodes)
     max_steps = 2048  # defines episode lengths
     #ml_agent.load("flipped_actions/Rainbow_RN_all64_at.size20__1s_64x2048_tr.freq.128__1.2_no_threading")
 
     highscore = -math.inf
-    save_folder = "flipped_actions/Rainbow_DQN/RainbowNetworkSmall/default_parameters_updatefreq_4"
+    save_folder = "flipped_actions/Rainbow_DQN/RainbowNetworkSmall/new_default_parameters"
     create_folder("models/" + save_folder)
     save_name_start = "RainbowNetworkSmall_1s_defaultParameters_" + str(episodes) + "x" + str(max_steps) + "_"
     save_name_end = "episodes_trail3"
@@ -1233,12 +1233,8 @@ def custom_train():
             ml_agent.add_memory_data(new_state, reward, done)
             accu_reward += reward
             # rewards.append(reward)                                      # for monitoring
-            if steps % 4 == 0:
-                ml_agent.train()
-            '''
-            else:
-                ml_agent.reset_noise()
-            '''
+
+            ml_agent.train()
 
         #ml_agent.train()
         sys.stdout.write(
@@ -1247,9 +1243,8 @@ def custom_train():
 
         # print(actions)                                                  # for monitoring
         # print(rewards)                                                  # for monitoring
-        #if e % save_interval == save_interval - 1:
-        if e % episodes == episodes - 1:
-            ml_agent.save(save_folder + "/" + save_name_start + str(save_i) + save_name_end)
+        if e % save_interval == save_interval - 1:
+            ml_agent.save(save_folder + "/" + save_name_start + str(e)+"episodes" + save_name_end)
             print("Model saved")
             time.sleep(0.1)
             save_i += 1
@@ -1504,13 +1499,13 @@ if __name__ == '__main__':
     # sb_run_model()
     # custom_sb_train()
 
-    #custom_train()
+    custom_train()
     # custom_run_model()  # TODO
     # test()
     # test2()
 
     # extract_collected_data()
-
+    '''
     np_array = np.load("data/flipped_actions/DQN_tests/target_update_interval/target_update_interval50000/DQN_1s_512x2048_target_update_interval50000_1_no_threading_end_product_counts.npy")  # folder_start + name_start + str(s) + end_name_prod)
     reset_np_array = np.load("data/flipped_actions/DQN_tests/target_update_interval/target_update_interval50000/DQN_1s_512x2048_target_update_interval50000_1_no_threading_restart_history.npy")  # folder_start + name_start + str(s) + end_name_reset)
     reward_np_array = np.load("data/flipped_actions/DQN_tests/target_update_interval/target_update_interval50000/DQN_1s_512x2048_target_update_interval50000_1_no_threading_reward_history.npy")  # folder_start + name_start + str(s) + end_name_rew)
@@ -1535,3 +1530,4 @@ if __name__ == '__main__':
             if reset_array[i]:
                 print(str(accu_rew).replace('.', ','))
                 accu_rew = 0
+    '''
