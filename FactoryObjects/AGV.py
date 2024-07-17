@@ -57,6 +57,8 @@ class AGV:
         self.unload_stucked_agvs = False
         self.is_moving = False
 
+        self.waiting_in_good_position_timer = 0.0
+
     def reload_settings(self):
         self.max_speed = config.agv['max_speed']
         self.length = config.agv['length']
@@ -87,6 +89,8 @@ class AGV:
         self.is_slave = False
         self.is_moving = False
         self.unload_stucked_agvs = False
+
+        self.waiting_in_good_position_timer = 0.0
 
     def set_target(self, target):
         self.move_target = target
@@ -226,7 +230,7 @@ class AGV:
                 self.command = 'idle'
                 self.status = 'idle'
             else:
-                self.unload_if_stuck()  # TODO (find better solution for NN)
+                self.unload_if_stuck()
 
     def load_product(self, product):
         if self.loaded_product is None and product is not None:
@@ -314,10 +318,16 @@ class AGV:
             print("AGV", str(self), "has more assigned slaves than mandatory")
         return False
 
-    def decouple(self):
+    def decouple(self): # also triggered when normal deliveries are done
+        warehouse_as_target = True
+        if self.input_object not in self.factory.warehouses:
+            self.waiting_in_good_position_timer = 0.0
+            warehouse_as_target = False
         if self.coupling_master is not None:
             for agv in self.factory.agvs:
                 if agv != self and agv.coupling_master == self:     # effects slaves
+                    if not warehouse_as_target:
+                        agv.waiting_in_good_position_timer = 0.0
                     agv.is_slave = False
                     agv.command = 'idle'        # status of slaves is 'idle' (already)
                     agv.is_free = True
@@ -327,6 +337,7 @@ class AGV:
             self.coupling_master = None
             self.coupled_size = [1, 1]
             self.agv_couple_count = 0
+
 
     def follow_master(self):
         if self.coupling_master is not None:

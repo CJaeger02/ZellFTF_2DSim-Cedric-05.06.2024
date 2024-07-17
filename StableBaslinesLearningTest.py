@@ -29,7 +29,7 @@ if is_ipython:
 
 class CustomEnvironment(gymnasium.Env):
     def __init__(self, render=False, variation_training=False, var_save_path=None, var_save_name=None, timestep=1.0,
-                 adjust_ep_len=False, reward=1, episode_length=2048, rainbow_algo=False, reward_fac=1):
+                 adjust_ep_len=False, reward_type=1, episode_length=2048, rainbow_algo=False, reward_fac=1):
         super(CustomEnvironment, self).__init__()
         self.agv_positioning = None
         self.coupling_command = None
@@ -103,7 +103,7 @@ class CustomEnvironment(gymnasium.Env):
 
         self.adjust_ep_len = adjust_ep_len
         self.restart_logger = []
-        self.reward_edit = reward
+        self.reward_type = reward_type
         self.episode_length = episode_length
         self.running_rainbow = rainbow_algo
         self.reward_factor = reward_fac
@@ -188,13 +188,14 @@ class CustomEnvironment(gymnasium.Env):
                 self._plot_training(window_number=str(self.render_window))
                 plt.show()
                 time.sleep(0.025)
+                print(reward)
 
 
 
         # display env continuously
         if self.render:
             self.display_colors()
-            time.sleep(0.0025)  # necessary  delay to regulate run speed
+            time.sleep(0.0125)  # necessary  delay to regulate run speed
 
         # used for SB-learning (e.g. PPO)
         if not self.running_rainbow:
@@ -635,14 +636,14 @@ class CustomEnvironment(gymnasium.Env):
 
         divIn = 4
         divOut = 4
-        if self.reward_edit == 2:
+        if self.reward_type == 2:
             divIn *= 2
             divOut *= 2
 
-        if self.reward_edit == 3:
+        if self.reward_type == 3:
             divOut *= 4
 
-        if self.reward_edit == 4:
+        if self.reward_type == 4:
             divIn *= 2
             divOut *= 4
 
@@ -679,7 +680,10 @@ class CustomEnvironment(gymnasium.Env):
                     self.GoodAGVs.append(AGV)
                 # Reward for being in a good position (to reinforce staying)
                 else:
-                    reward += 0.005 * self.time_step  # time payments should be scaled accordingly
+                    if AGV.waiting_in_good_position_timer < 20:
+                        reward += 0.005 * self.time_step  # time payments should be scaled accordingly
+                        if self.reward_type != 5:
+                            AGV.waiting_in_good_position_timer += self.time_step
             # remove from list if position is no longer good (for example other agvs realized the transport)
             elif arrived:
                 if not prod_available or not prod_needed:
@@ -855,8 +859,8 @@ def sb_train_variation():
     episode_length = 2048
     gamma = 0.99
     trial = "_1"
-    save_folder = "./data/flipped_actions/A2C_tests/"
-    save_name_start = "A2C_1s_" + str(episodes) + "x" + str(episode_length) + "_"
+    save_folder = "./data/flipped_actions/DQN_tests/"
+    save_name_start = "DQN_1s_" + str(episodes) + "x" + str(episode_length) + "_"
     save_name_end = "_no_threading" # "_adjusted_episode_length__no_threading"
 
     '''
@@ -881,21 +885,27 @@ def sb_train_variation():
     env.close()
     time.sleep(1)
     '''
-
-    for i in [1]:
-        folder_spes = "timestep1.0_2/"
+    '''
+    for i in [1,8296,2466]:
+        folder_spes = "learning_rate/learning_rate0.0003_2/"
         create_folder(save_folder + folder_spes)
-        id_name = ""
+        id_name = "learning_rate0.0003"
+        if i != 1:
+            id_name += "_seed" + str(i)
         save_path = save_folder + folder_spes
         save_name = save_name_start + id_name + trial + save_name_end
-        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name)
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name, episode_length=episode_length)
         env.reset()
         save_nameApath = save_path + save_name
-        model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=gamma, device="cpu")
+        if i == 1:
+            model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=gamma, device="cpu", learning_rate=0.0003)
+        else:
+            model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=gamma, device="cpu", seed=i, learning_rate=0.0003)
         model.learn(episodes * episode_length)
         model.save(save_nameApath + ".zip")
         env.close()
         time.sleep(1)
+        '''
     '''
     save_folder = "./data/flipped_actions/reward_variation/PPO_tests/"
     save_name_start = "PPO_1s_" + str(episodes) + "x" + str(episode_length) + "_"
@@ -914,107 +924,154 @@ def sb_train_variation():
         env.close()
         time.sleep(1)
     '''
+    '''
+    # LOOK AT TO_DO FÜRS SCHREIBEN
+    # TODO rewardfactor von 1,25 wäre evtl. besser (vgl. DQN und PPO), aber dann vergleichbarkeit geringer
+    for n_steps in [5]:
+        folder_spes = "optimization/"
+        folder_spes += "optimization_n_steps_and_lr_optimized_reward/"
+        create_folder(save_folder + folder_spes)
+        id_name = "optimization_" + str(episodes) + "x" + str(episode_length) + "_learning_rate0.0005"+"_n_steps"+str(n_steps)+"_optimized_reward"
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name,
+                                episode_length=episode_length)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu", learning_rate=0.0005, n_steps=n_steps)
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        time.sleep(0.25)
+        env.close()
+        time.sleep(1)
+
+    for n_steps in [5]:
+        folder_spes = "optimization/"
+        folder_spes += "optimization_n_steps_and_lr_optimized_reward/"
+        create_folder(save_folder + folder_spes)
+        id_name = "optimization"+"_learning_rate0.0002"+"_n_steps"+str(n_steps)+"_optimized_reward"
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name,
+                                episode_length=episode_length)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu", learning_rate=0.0002, n_steps=n_steps)
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        time.sleep(0.25)
+        env.close()
+        time.sleep(1)
+
+    for n_steps2 in [10,17]:
+        # episode_length = 2048
+        episodes = 1024
+        repetition = 8
+        folder_spes = "train_len/"
+        folder_spes += "train_len" + str(repetition) + "x" + str(episodes) + "x" + str(episode_length) + "_lr0.00045_n_steps"+str(n_steps2)+"/"
+        create_folder(save_folder + folder_spes)
+        id_name = "train_len_" + str(repetition) + "x" + str(episodes) + "x" + str(episode_length) + "_lr0.00045_n_steps"+str(n_steps2)
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name,
+                                episode_length=episode_length, reward_type=5)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu", learning_rate=0.00045, n_steps=n_steps2)
+        for i in range(repetition):
+            model.learn(episodes * episode_length)
+            model.save(save_nameApath + "_" + str(i) + ".zip")
+            time.sleep(0.25)
+        env.close()
+        time.sleep(1)
+
+        episodes = 1024 * 8
+        folder_spes = "train_len/"
+        folder_spes += "train_len" + str(episodes) + "x" + str(episode_length) + "_lr0.00045_n_steps"+str(n_steps2)+"/"
+        create_folder(save_folder + folder_spes)
+        id_name = "train_len_" + str(episodes) + "x" + str(episode_length) + "_lr0.00045_n_steps"+str(n_steps2)
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name,
+                                episode_length=episode_length, reward_type=5)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu", learning_rate=0.00045, n_steps=n_steps2)
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        time.sleep(0.25)
+        env.close()
+        time.sleep(1)
+    '''
 
     '''
-    for i in range(11):
+    for i2 in range(10):
+        gamma = 0.9 + (i2/100)
         folder_spes = "gamma/"
-        gamma = 0.99 + 0.001 * i
         folder_spes += "gamma" + str(gamma) + "/"
         create_folder(save_folder + folder_spes)
         id_name = "gamma" + str(gamma)
         save_path = save_folder + folder_spes
         save_name = save_name_start + id_name + trial + save_name_end
-        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path,var_save_name=save_name)
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name, reward_type=5)
         env.reset()
         save_nameApath = save_path + save_name
-        model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=gamma, device="cpu")
+        model = sb.DQN('MlpPolicy', env=env, verbose=1, gamma=gamma,device="cpu")
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        env.close()
+        time.sleep(1)
+
+    for i2 in range(16):
+        lr = 0.00002 * ((i2%5)+1) * (10**(i2//5))
+        folder_spes = "learning_rate/"
+        folder_spes += "lr" + str(lr) + "/"
+        create_folder(save_folder + folder_spes)
+        id_name = "lr" + str(lr)
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name, reward_type=5)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.DQN('MlpPolicy', env=env, verbose=1, learning_rate=lr,device="cpu")
         model.learn(episodes * episode_length)
         model.save(save_nameApath + ".zip")
         env.close()
         time.sleep(1)
     '''
-    '''
-    episodes = 512*16
-    folder_spes = "train_len/"
-    folder_spes += "train_len" + str(episodes) + "x" + str(episode_length) + "_2/"
-    create_folder(save_folder + folder_spes)
-    id_name = "train_len_" + str(episodes) + "x" + str(episode_length) + "_seed4747641_"
-    save_path = save_folder + folder_spes
-    save_name = save_name_start + id_name + trial + save_name_end
-    env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name,
-                            episode_length=episode_length)
-    env.reset()
-    save_nameApath = save_path + save_name
-    model = sb.DQN('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu", seed=4747641)
-    model.learn(episodes * episode_length)
-    model.save(save_nameApath + ".zip")
-    time.sleep(0.25)
-    env.close()
-    time.sleep(1)
-
-    
-    # episode_length = 2048
-    episodes = 512
-    repetition = 16
-    folder_spes = "train_len/"
-    folder_spes += "train_len" + str(repetition) + "x" + str(episodes) + "x" + str(episode_length) + "_2/"
-    create_folder(save_folder + folder_spes)
-    id_name = "train_len_" + str(repetition) + "x" + str(episodes) + "x" + str(episode_length) + "_target_update_interval=1000_"
-    save_path = save_folder + folder_spes
-    save_name = save_name_start + id_name + trial + save_name_end
-    env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name,
-                            episode_length=episode_length)
-    env.reset()
-    save_nameApath = save_path + save_name
-    model = sb.DQN('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu", target_update_interval=1000)
-    for i in range(16):
-        model.learn(episodes * episode_length)
-        model.save(save_nameApath + "_target_update_interval=1000_" + "_" + str(i) + ".zip")
-        time.sleep(0.25)
-    env.close()
-    time.sleep(1)
-    
-    episodes = 512 * 16
-    folder_spes = "train_len/"
-    folder_spes += "train_len" + str(episodes) + "x" + str(episode_length) + "/"
-    create_folder(save_folder + folder_spes)
-    id_name = "train_len_" + str(episodes) + "x" + str(episode_length) + "_"
-    save_path = save_folder + folder_spes
-    save_name = save_name_start + id_name + trial + save_name_end
-    env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name,
-                            episode_length=episode_length)
-    env.reset()
-    save_nameApath = save_path + save_name
-    model = sb.DQN('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu")
-    model.learn(episodes * episode_length)
-    model.save(save_nameApath + ".zip")
-    time.sleep(0.25)
-    env.close()
-    time.sleep(1)
-    '''
-
-    '''
-    for i2 in range(4,10):
-        i = 2 ** i2
-        folder_spes = "restarts2_halved_prio_rewards/"
-        folder_spes += "restartAfter" + str(i) + "_halved_prio_rewards/"
+    for i2 in [128, 256, 512, 1024]:
+        folder_spes = "batch_size/"
+        folder_spes += "batch_size" + str(i2) + "/"
         create_folder(save_folder + folder_spes)
-        id_name = "restart" + str(i) + "_halved_prio_rewards_"
+        id_name = "lr" + str(i2)
         save_path = save_folder + folder_spes
         save_name = save_name_start + id_name + trial + save_name_end
-        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name, reward=2)
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name, reward_type=5)
         env.reset()
         save_nameApath = save_path + save_name
-        model = sb.DQN('MlpPolicy', env=env, verbose=1, gamma=0.99,device="cpu")
-        epis_done = 0
-        while epis_done < 512:
-            model.learn(i * episode_length)
-            epis_done += i
-            model.save(save_nameApath + "_" + str(epis_done) + "episodes_done.zip")
-            time.sleep(0.25)
+        model = sb.DQN('MlpPolicy', env=env, verbose=1, batch_size=i2, device="cpu")
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
         env.close()
         time.sleep(1)
 
+    for i2 in [500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]:
+        folder_spes = "target_update_interval/"
+        folder_spes += "target_update_interval" + str(i2) + "/"
+        create_folder(save_folder + folder_spes)
+        id_name = "target_update_interval" + str(i2)
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name, reward_type=5)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.DQN('MlpPolicy', env=env, verbose=1, target_update_interval=i2,device="cpu")
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        env.close()
+        time.sleep(1)
+
+    '''
     for i2 in range(4,10):
         i = 2 ** i2
         folder_spes = "restarts2_output_prio_nerf/"
@@ -1063,11 +1120,18 @@ def create_folder(save_folder):#
         os.makedirs(save_folder)
 
 def sb_train():
-    env = CustomEnvironment(render=False)  # True for display (creates the factory display window)
+    env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
+    env.display_colors()
+    time.sleep(2)
     env.reset()
-    model = sb.DQN('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu")
-    #model = sb.A2C.load("./data/flipped_actions/A2C_1s_64x2048_4.8_no_threading.zip", env=env, verbose=1, gamma=0.99)  # for DQN: exploration_initial_eps=0.002, exploration_final_eps=0.001,
+    model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu")
+    model = sb.A2C.load(
+        "data/flipped_actions/A2C_tests/optimization/optimization_n_steps_and_lr/A2C_1s_1024x1024_optimization_learning_rate0.0002_n_steps14_1_no_threading.zip",
+        env=env, verbose=1, gamma=0.99)
+
+    #model = sb.PPO.load("data/flipped_actions/PPO_tests/timestep/timestep1.0/PPO_1s_512x2048_timestep1.0_1_no_threading.zip", env=env, verbose=1, gamma=0.99)  # for DQN: exploration_initial_eps=0.002, exploration_final_eps=0.001,
     print(model.policy)
+
 
     save_name_start = "./data/flipped_actions/DQN_tests/timestep/timestep1.0_"
     save_name_end = "_no_threading.zip"
@@ -1086,7 +1150,8 @@ def sb_run_model():
     env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
     env.reset()
     # model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99)
-    model = sb.DQN.load("data/flipped_actions/DQN_tests/timestep/timestep1.0/DQN_1s_512x2048_timestep1.0_seed337_2_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    #model = sb.PPO.load("data/flipped_actions/PPO_tests/timestep/timestep1.0/PPO_1s_512x2048_timestep1.0_1_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    model = sb.A2C.load("data/flipped_actions/A2C_tests/optimization/optimization_n_steps_and_lr/A2C_1s_1024x1024_optimization_learning_rate0.0002_n_steps17_1_no_threading.zip", env=env, verbose=1, gamma=0.99)
 
     vec_env = model.get_env()
     obs = vec_env.reset()
@@ -1296,105 +1361,130 @@ def test2_helper(env, delivery):
 
 
 def extract_collected_data():
-    # Load the .npy file
-    np_array = np.load('data/flipped_actions/A2C_tests/train_len/train_len16x512x2048_1/A2C_1s_512x2048_train_len_16x512x2048_1_no_threading_end_product_counts.npy')
-    reset_np_array = np.load('data/flipped_actions/A2C_tests/train_len/train_len16x512x2048_1/A2C_1s_512x2048_train_len_16x512x2048_1_no_threading_restart_history.npy')
+    folder_start = "data/flipped_actions/A2C_tests/optimization/optimization_n_steps_and_lr"
+    name_start = "/A2C_1s_1024x1024_optimization_"
+    end_name_prod = "_1_no_threading_end_product_counts.npy"
+    end_name_rew = "_1_no_threading_reward_history.npy"
+    end_name_reset = "_1_no_threading_restart_history.npy"
+    for a in range(3):
+        # Load the .npy file
+        assist_array = ["",
+                        "_seed2466",
+                        "_seed8296"]
+        s = assist_array[a]
+        '''
+        if s in [0.3, 0.03, 0.6, 0.09]:
+            print("SKIP",s)
+            time.sleep(5)
+            continue
+        '''
+        np_array = np.load("data/flipped_actions/A2C_tests/learning_rate/learning_rate0.0003_2/A2C_1s_1024x1024_learning_rate0.0003"+s+"_2_no_threading_end_product_counts.npy")# folder_start + name_start + str(s) + end_name_prod)
+        reset_np_array = np.load("data/flipped_actions/A2C_tests/learning_rate/learning_rate0.0003_2/A2C_1s_1024x1024_learning_rate0.0003"+s+"_2_no_threading_restart_history.npy")    # folder_start + name_start + str(s) + end_name_reset)
 
-    excel_file_name = 'tempLongA2CTraining.xlsx'
-    # extract reward in each timestep to excel sheet
-    reward_np_array = np.load("data/flipped_actions/A2C_tests/train_len/train_len16x512x2048_1/A2C_1s_512x2048_train_len_16x512x2048_1_no_threading_reward_history.npy")
+        excel_file_name = 'A2C_tests_learning_rate/learning_rate0.0003_2'+str(s)+'.xlsx'
+        # extract reward in each timestep to excel sheet
+        reward_np_array = np.load("data/flipped_actions/A2C_tests/learning_rate/learning_rate0.0003_2/A2C_1s_1024x1024_learning_rate0.0003"+s+"_2_no_threading_reward_history.npy") # folder_start + name_start + str(s) + end_name_rew)
 
-    # Define the maximum number of rows per sheet
-    max_rows_per_sheet = 1048575
+        # Define the maximum number of rows per sheet
+        max_rows_per_sheet = 1048575
 
-    # Calculate the number of sheets needed
-    num_sheets = len(reward_np_array) // max_rows_per_sheet + 1
-    print("sheets:",num_sheets,"total_datapoints:",len(reward_np_array))
-    with pd.ExcelWriter(excel_file_name, engine='openpyxl') as writer:
-        for i in range(num_sheets):
-            start_row = i * max_rows_per_sheet
-            end_row = min((i + 1) * max_rows_per_sheet, len(reward_np_array))
-            chunk_df = pd.DataFrame(reward_np_array[start_row:end_row])
-            sheet_name = f'Sheet{i+1}'
-            chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
-            print(f"Chunk {i+1} written to {sheet_name}")
-    print("All data has been successfully written to Excel.")
-    '''
-    # machine status
-    # Extract the first list from the 2D np_array
-    first_list = np_array[0]  # Assuming np_array has shape (n, m), and we need np_array[0]
-
-    # Map the string values to numbers
-    status_mapping = {"idle": 0, "process": 1, "blocked": 2}
-    mapped_values = np.array([status_mapping[status] for status in first_list])
-
-    # Calculate the number of sheets needed
-    num_sheets = len(mapped_values) // max_rows_per_sheet + 1
-
-    # Write the data to Excel
-    with pd.ExcelWriter(excel_file_name, engine='openpyxl') as writer:
-        for i in range(num_sheets):
-            start_row = i * max_rows_per_sheet
-            end_row = min((i + 1) * max_rows_per_sheet, len(mapped_values))
-            chunk_df = pd.DataFrame(mapped_values[start_row:end_row], columns=['Machine Status'])
-            sheet_name = f'Sheet{i + 1}'
-            chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
-            print(f"Chunk {i + 1} written to {sheet_name}")
-    print("All data has been successfully written to Excel.")
-    '''
-    normal_array = np_array.tolist()
-    reset_array = reset_np_array.tolist()
-
-    '''
-    # extract value at end of time step (e. g. end product count)
-    for i in range(len(reset_array)-1):
-        if reset_array[i]:
-            # print(i)
-            print(normal_array[i])
-            assert normal_array[i+1] == 0, print(str(normal_array[i])+", "+str(normal_array[i+1]))
-    print(normal_array[-1])
-
-    # print(max(normal_array))
-    '''
-
-    '''
-    # old end product extraction
-    for i in range(1,512):
-        print(normal_array[i*2049-2])
-        assert normal_array[i * 2049 - 1] == 0, print(i)
-    print(normal_array[-1])
+        # Calculate the number of sheets needed
+        num_sheets = len(reward_np_array) // max_rows_per_sheet + 1
+        print("sheets:",num_sheets,"total_datapoints:",len(reward_np_array))
+        with pd.ExcelWriter(excel_file_name, engine='openpyxl') as writer:
+            for i in range(num_sheets):
+                start_row = i * max_rows_per_sheet
+                end_row = min((i + 1) * max_rows_per_sheet, len(reward_np_array))
+                chunk_df = pd.DataFrame(reward_np_array[start_row:end_row])
+                sheet_name = f'Sheet{i+1}'
+                chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                print(f"Chunk {i+1} written to {sheet_name}")
+        print("All data has been successfully written to Excel.")
+        
+        '''
+        # machine status
+        # Extract the first list from the 2D np_array
+        first_list = np_array[0]  # Assuming np_array has shape (n, m), and we need np_array[0]
     
-    #ensure no mistakes
-    for i in range(1,512):
-        for j in range(500):
-            assert normal_array[i * 2049 - 3 - j] <= normal_array[i * 2049 - 2], print(i)
-        print(i)
-    '''
-    '''
-    # for tests with >2048 condition
-    for i in range(2046,2051):
-        end_prod = normal_array[i]
-        print(end_prod)
-        # assert end_prod >= normal_array[i*2049-1], print(i)
-        #assert normal_array[i*2049-1] == 0, print(i)
-    #print(normal_array[-1])
-    '''
-    '''
-    # extract discounted reward sum per episode
-    discount = 1
-    _ep_rew = 0
-    for i in range(len(reset_array)-1):
-        _ep_rew += (normal_array[i] )#* discount)
-        if reset_array[i]:
-            print(str(_ep_rew).replace('.', ','))
-            _ep_rew = 0
-            discount = 1
-            assert normal_array[i + 1] == 0, print(
-                str(normal_array[i]).replace('.', ',') + ", " + str(normal_array[i + 1]).replace('.', ','))
-        else:
-            discount *= 0.99
-    print(str(_ep_rew).replace('.', ','))
-    '''
+        # Map the string values to numbers
+        status_mapping = {"idle": 0, "process": 1, "blocked": 2}
+        mapped_values = np.array([status_mapping[status] for status in first_list])
+    
+        # Calculate the number of sheets needed
+        num_sheets = len(mapped_values) // max_rows_per_sheet + 1
+    
+        # Write the data to Excel
+        with pd.ExcelWriter(excel_file_name, engine='openpyxl') as writer:
+            for i in range(num_sheets):
+                start_row = i * max_rows_per_sheet
+                end_row = min((i + 1) * max_rows_per_sheet, len(mapped_values))
+                chunk_df = pd.DataFrame(mapped_values[start_row:end_row], columns=['Machine Status'])
+                sheet_name = f'Sheet{i + 1}'
+                chunk_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                print(f"Chunk {i + 1} written to {sheet_name}")
+        print("All data has been successfully written to Excel.")
+        '''
+        normal_array = np_array.tolist()
+        reset_array = reset_np_array.tolist()
+
+
+        # extract value at end of time step (e. g. end product count)
+        for i in range(len(reset_array)-1):
+            if reset_array[i]:
+                # print(i)
+                print(normal_array[i])
+                assert normal_array[i+1] == 0, print(str(normal_array[i])+", "+str(normal_array[i+1]))
+        print(normal_array[-1])
+    
+        # print(max(normal_array))
+
+        '''
+        # old end product extraction
+        for i in range(1,1024):
+            print(normal_array[i*1025-2])
+            assert normal_array[i * 1025 - 1] == 0, print("Mistake: no reset at",i)
+        #print(normal_array[-1])
+
+        #ensure no mistakes
+        for i in range(1,1024):
+            for j in range(500):
+                assert normal_array[i * 1025 - 3 - j] <= normal_array[i * 1025 - 2], print("Mistake: ",i)
+            #print(i)
+        print()
+        print("gamma",s)
+        
+        # for tests with >2048 condition
+        for i in range(179*2049-5,179*2049+5):
+            end_prod = normal_array[i]
+            print(str(i)+":",end_prod)
+            # assert end_prod >= normal_array[i*2049-1], print(i)
+            #assert normal_array[i*2049-1] == 0, print(i)
+        #print(normal_array[-1])
+        i = 366772
+        a = True
+        while a:
+            end_prod = normal_array[i]
+            print(str(i) + ":", end_prod)
+            i += 1
+            if end_prod == 0:
+                a = False
+        '''
+        '''
+        # extract discounted reward sum per episode
+        discount = 1
+        _ep_rew = 0
+        for i in range(len(reset_array)-1):
+            _ep_rew += (normal_array[i] )#* discount)
+            if reset_array[i]:
+                print(str(_ep_rew).replace('.', ','))
+                _ep_rew = 0
+                discount = 1
+                assert normal_array[i + 1] == 0, print(
+                    str(normal_array[i]).replace('.', ',') + ", " + str(normal_array[i + 1]).replace('.', ','))
+            else:
+                discount *= 0.99
+        print(str(_ep_rew).replace('.', ','))
+        '''
 if __name__ == '__main__':
     print("Cuda is available: " + str(torch.cuda.is_available()))
 
@@ -1419,4 +1509,29 @@ if __name__ == '__main__':
     # test()
     # test2()
 
-    extract_collected_data()
+    # extract_collected_data()
+
+    np_array = np.load("data/flipped_actions/DQN_tests/target_update_interval/target_update_interval50000/DQN_1s_512x2048_target_update_interval50000_1_no_threading_end_product_counts.npy")  # folder_start + name_start + str(s) + end_name_prod)
+    reset_np_array = np.load("data/flipped_actions/DQN_tests/target_update_interval/target_update_interval50000/DQN_1s_512x2048_target_update_interval50000_1_no_threading_restart_history.npy")  # folder_start + name_start + str(s) + end_name_reset)
+    reward_np_array = np.load("data/flipped_actions/DQN_tests/target_update_interval/target_update_interval50000/DQN_1s_512x2048_target_update_interval50000_1_no_threading_reward_history.npy")  # folder_start + name_start + str(s) + end_name_rew)
+
+    normal_array = np_array.tolist()
+    reset_array = reset_np_array.tolist()
+    reward_array = reward_np_array.tolist()
+
+    prod = True
+    if prod:
+        # extract value at end of time step (e. g. end product count)
+        for i in range(len(reset_array)):
+            if reset_array[i]:
+                # print(i)
+                print(normal_array[i])
+                if i < len(normal_array)-1:
+                    assert normal_array[i + 1] == 0, print(str(normal_array[i]) + ", " + str(normal_array[i + 1]))
+    else:
+        accu_rew = 0
+        for i in range(len(reset_array)):
+            accu_rew += reward_array[i]
+            if reset_array[i]:
+                print(str(accu_rew).replace('.', ','))
+                accu_rew = 0
