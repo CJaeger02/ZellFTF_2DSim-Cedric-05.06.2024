@@ -15,7 +15,8 @@ class RainbowNetwork(torch.nn.Module):
         self.feature_layers = torch.nn.Sequential(
             torch.nn.Linear(in_dim, 128),
             torch.nn.LeakyReLU(),
-            torch.nn.Linear(128, 256),  # TODO Warum hiernach kein ReLU()?
+            torch.nn.Linear(128, 256),
+            torch.nn.LeakyReLU(),
         )
 
         # set advantage layer
@@ -56,18 +57,22 @@ class RainbowNetwork(torch.nn.Module):
 
     def save(self, file_name='model'):
         file_name = file_name + '.pth'
+        '''
         model_folder_path = '.\models'
         if not os.path.exists(model_folder_path):
             os.makedirs(model_folder_path)
-        file_name = os.path.join(model_folder_path, file_name)
+        file_name = os.path.join(model_folder_path, file_name)'''
         torch.save(self.state_dict(), file_name)
 
     def load(self, file_name='model'):
-        file_name = file_name + '.pth'
-        model_folder_path = './models'
-        file_name = os.path.join(model_folder_path, file_name)
-        if os.path.exists(file_name):
-            self.load_state_dict(torch.load(file_name))
+        #file_name = file_name + '.pth'
+        #model_folder_path = './models'
+        #file_name = os.path.join(model_folder_path, file_name)
+        # if os.path.exists(file_name):
+        print()
+        print("LOADED")
+        print()
+        self.load_state_dict(torch.load(file_name))
 
 class RainbowNetworkSmall(RainbowNetwork):
     def __init__(self, in_dim: int, out_dim: int, atom_size: int = 31, support=1, std_init: float = 0.5):
@@ -80,6 +85,7 @@ class RainbowNetworkSmall(RainbowNetwork):
             torch.nn.Linear(64, 64),
             torch.nn.LeakyReLU(),
             torch.nn.Linear(64, 256),
+            torch.nn.LeakyReLU(),
         )
 
 
@@ -96,6 +102,7 @@ class RainbowNetworkMid(RainbowNetwork):
             torch.nn.Linear(256, 512),
             torch.nn.LeakyReLU(),
             torch.nn.Linear(512, 256),
+            torch.nn.LeakyReLU(),
         )
 
 
@@ -118,6 +125,7 @@ class RainbowNetworkLarge(RainbowNetwork):
             torch.nn.Linear(1024, 512),
             torch.nn.LeakyReLU(),
             torch.nn.Linear(512, 256),
+            torch.nn.LeakyReLU(),
         )
 
 
@@ -205,15 +213,19 @@ class RainbowCnnNetwork(torch.nn.Module):
 
     def save(self, file_name='model'):
         file_name = file_name + '.pth'
+        '''
         model_folder_path = './models'
         if not os.path.exists(model_folder_path):
             os.makedirs(model_folder_path)
-        file_name = os.path.join(model_folder_path, file_name)
+        file_name = os.path.join(model_folder_path, file_name)'''
         torch.save(self.state_dict(), file_name)
 
     def load(self, file_name='model'):
         file_name = file_name + '.pth'
         model_folder_path = './models'
         file_name = os.path.join(model_folder_path, file_name)
-        if os.path.exists(file_name):
-            self.load_state_dict(torch.load(file_name))
+        #if os.path.exists(file_name):
+        print()
+        print("LOADED")
+        print()
+        self.load_state_dict(torch.load(file_name))

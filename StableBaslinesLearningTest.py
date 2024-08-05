@@ -1,4 +1,5 @@
 import math
+import random
 import sys
 import time
 import os
@@ -195,7 +196,7 @@ class CustomEnvironment(gymnasium.Env):
         # display env continuously
         if self.render:
             self.display_colors()
-            time.sleep(0.0125)  # necessary  delay to regulate run speed
+            time.sleep(0.125)  # necessary  delay to regulate run speed
 
         # used for SB-learning (e.g. PPO)
         if not self.running_rainbow:
@@ -208,6 +209,7 @@ class CustomEnvironment(gymnasium.Env):
         truncated = False
         divisor = self.time_step if self.adjust_ep_len else 1
         if self.step_counter > ((self.episode_length/divisor)-1):  # for smaller time steps 10* to 20*
+            print("EPISODE DONE")
             # for special condition display options
             if self.last_end_product_count > math.inf:
                 self.conditional_display(self.render_delay)  # render_delay indicates episode (count)
@@ -247,6 +249,8 @@ class CustomEnvironment(gymnasium.Env):
         # plt.ioff()
         # plt.show()
         if self.variation_training and self.reward_history:
+            print("Produced products in episode: " + str(self.end_product_count[-1]))
+            create_folder(self.var_save_path)
             np_ar_end_prod = np.array(self.end_product_count)
             np_ar_end_prod_name = str(self.var_save_name) + "_end_product_counts"
             file_path = os.path.join(self.var_save_path, np_ar_end_prod_name)
@@ -256,6 +260,7 @@ class CustomEnvironment(gymnasium.Env):
             np_ar_rew_hist_name = str(self.var_save_name) + "_reward_history"
             file_path = os.path.join(self.var_save_path, np_ar_rew_hist_name)
             np.save(file_path, np_ar_rew_hist)
+
             np_ar_mach_hist = np.array(self.machine_status_history)
             np_ar_mach_hist_name = str(self.var_save_name) + "_machine_status_history"
             file_path = os.path.join(self.var_save_path, np_ar_mach_hist_name)
@@ -264,6 +269,7 @@ class CustomEnvironment(gymnasium.Env):
             np_ar_agv_free_hist_name = str(self.var_save_name) + "_agv_free_history"
             file_path = os.path.join(self.var_save_path, np_ar_agv_free_hist_name)
             np.save(file_path, np_ar_agv_free_hist)
+
             np_ar_rest_hist = np.array(self.restart_logger)
             np_ar_rest_hist_name = str(self.var_save_name) + "_restart_history"
             file_path = os.path.join(self.var_save_path, np_ar_rest_hist_name)
@@ -653,56 +659,58 @@ class CustomEnvironment(gymnasium.Env):
             input_priority, output_priority = machine.get_buffer_status()
             if input_priority < self.last_machine_priority[index][0]:
                 reward += self.last_machine_priority[index][0] * 1/divIn * self.reward_factor
-            if output_priority < self.last_machine_priority[index][1]:
-                reward += self.last_machine_priority[index][1] * 1/divOut * self.reward_factor# TODO for some reason I once ignored output_priority (old "wrong" reward implementation)
+            if self.reward_type != 7:
+                if output_priority < self.last_machine_priority[index][1]:
+                    reward += self.last_machine_priority[index][1] * 1/divOut * self.reward_factor
             self.last_machine_priority[index][0] = input_priority
             self.last_machine_priority[index][1] = output_priority
             index += 1
 
         # Reward for when an AGV is at an output that holds at least one product ("good position")
-        for AGV in self.factory.agvs:
-            #try:  # TODO: (occasionally values that should be "defined" were "undefined" due to threading)
-            arrived = False
-            prod_needed = False
-            prod_available = False
-            if AGV.coupling_master:     # coupling_master only exists if task requires coupling
-                arrived = (AGV.status == 'waiting_with_master' or AGV.status == 'wait_for_coupling' or AGV.status == 'master_slave_decision')
-                prod_available = AGV.coupling_master.output_object.has_product(AGV.coupling_master.target_product)
+        if self.reward_type != 6:
+            for AGV in self.factory.agvs:
+                #try:  # TODO: (occasionally values that should be "defined" were "undefined" due to threading)
+                arrived = False
+                prod_needed = False
+                prod_available = False
+                if AGV.coupling_master:     # coupling_master only exists if task requires coupling
+                    arrived = (AGV.status == 'waiting_with_master' or AGV.status == 'wait_for_coupling' or AGV.status == 'master_slave_decision')
+                    prod_available = AGV.coupling_master.output_object.has_product(AGV.coupling_master.target_product)
 
-                if isinstance(AGV.coupling_master.input_object, Machine):
-                    input_priority, output_priority = AGV.coupling_master.input_object.get_buffer_status()
-                    prod_needed = False if input_priority <= 0 else True
-                if AGV.coupling_master.target_product in self.factory.warehouses[0].input_products:
-                    prod_needed = True
-            if prod_available and arrived and prod_needed:
-                if AGV not in self.GoodAGVs:
-                    reward += 0.1
-                    self.GoodAGVs.append(AGV)
-                # Reward for being in a good position (to reinforce staying)
-                else:
-                    if AGV.waiting_in_good_position_timer < 20:
-                        reward += 0.005 * self.time_step  # time payments should be scaled accordingly
-                        if self.reward_type != 5:
-                            AGV.waiting_in_good_position_timer += self.time_step
-            # remove from list if position is no longer good (for example other agvs realized the transport)
-            elif arrived:
-                if not prod_available or not prod_needed:
-                    if AGV in self.GoodAGVs:
+                    if isinstance(AGV.coupling_master.input_object, Machine):
+                        input_priority, output_priority = AGV.coupling_master.input_object.get_buffer_status()
+                        prod_needed = False if input_priority <= 0 else True
+                    if AGV.coupling_master.target_product in self.factory.warehouses[0].input_products:
+                        prod_needed = True
+                if prod_available and arrived and prod_needed:
+                    if AGV not in self.GoodAGVs:
+                        reward += 0.1
+                        self.GoodAGVs.append(AGV)
+                    # Reward for being in a good position (to reinforce staying)
+                    else:
+                        if AGV.waiting_in_good_position_timer < 20:
+                            reward += 0.005 * self.time_step  # time payments should be scaled accordingly
+                            if self.reward_type != 5:
+                                AGV.waiting_in_good_position_timer += self.time_step
+                # remove from list if position is no longer good (for example other agvs realized the transport)
+                elif arrived:
+                    if not prod_available or not prod_needed:
+                        if AGV in self.GoodAGVs:
+                            self.GoodAGVs.remove(AGV)
+                #except:
+                 #   pass
+
+                # Negative Reward for leaving a good positions (punishment)
+                if AGV.is_moving and AGV in self.GoodAGVs:
+                    if AGV.coupling_master:
+                        is_agv_delivering = (AGV.coupling_master.status == 'move_to_input')
+                    else:
+                        is_agv_delivering = (AGV.status == 'move_to_input')
+                    if is_agv_delivering:
                         self.GoodAGVs.remove(AGV)
-            #except:
-             #   pass
-
-            # Negative Reward for leaving a good positions (punishment)
-            if AGV.is_moving and AGV in self.GoodAGVs:
-                if AGV.coupling_master:
-                    is_agv_delivering = (AGV.coupling_master.status == 'move_to_input')
-                else:
-                    is_agv_delivering = (AGV.status == 'move_to_input')
-                if is_agv_delivering:
-                    self.GoodAGVs.remove(AGV)
-                else:
-                    reward -= 0.1
-                    self.GoodAGVs.remove(AGV)
+                    else:
+                        reward -= 0.1
+                        self.GoodAGVs.remove(AGV)
 
         return reward
 
@@ -859,9 +867,82 @@ def sb_train_variation():
     episode_length = 2048
     gamma = 0.99
     trial = "_1"
-    save_folder = "./data/flipped_actions/DQN_tests/"
-    save_name_start = "DQN_1s_" + str(episodes) + "x" + str(episode_length) + "_"
+    save_folder = "./data/flipped_actions/"
+    save_name_start = "_1s_" + str(episodes) + "x" + str(episode_length) + "_"
     save_name_end = "_no_threading" # "_adjusted_episode_length__no_threading"
+
+    folder_spes = "MISTAKE/"
+    id_name = "MISTAKE"
+
+    save_name_start = "PPO_1s_" + str(episodes) + "x" + str(episode_length) + "_"
+    folder_spes = "final_training/PPO/no_output_rewards/"
+    create_folder(save_folder + folder_spes)
+    id_name = "FINAL_no_output_rewards"
+    save_path = save_folder + folder_spes
+    save_name = save_name_start + id_name + trial + save_name_end
+    env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name, reward_type=7
+                            )
+    env.reset()
+    save_nameApath = save_path + save_name
+    model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=gamma, device="cpu", seed=777)
+    # model.learn(episodes * episode_length)
+    model.learn(10000000)
+    model.save(save_nameApath + ".zip")
+    env.close()
+    time.sleep(1)
+
+
+    """
+    save_name_start = "_0.1s_" + str(episodes) + "x" + str(episode_length) + "_"
+    for reward_type in [5, 6]:
+        if reward_type == 5:
+            id_name = "old_reward_function"
+            folder_spes = "old_reward_function_0.1s/"
+        elif reward_type == 6:
+            id_name = "very_old_reward_function"
+            folder_spes = "very_old_reward_function_0.1s/"
+        for i in [9679984, 31959, 3162558229, 3280141, 1344767, 21117]:
+            create_folder(save_folder + folder_spes)
+            algo_name = "DQN"
+            algo_file = "DQN_seed" + str(i)+ "/"
+            save_path = save_folder + folder_spes + algo_file
+            save_name = algo_name + save_name_start + id_name + trial + save_name_end
+            env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name, reward_type=reward_type, timestep=0.1)
+            env.reset()
+            save_nameApath = save_path + save_name
+            model = sb.DQN('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu", seed=i)
+            model.learn(episodes * episode_length)
+            model.save(save_nameApath + ".zip")
+            time.sleep(0.25)
+            env.close()
+            time.sleep(0.25)
+            algo_name = "A2C"
+            algo_file = "A2C_seed" + str(i) + "/"
+            save_path = save_folder + folder_spes + algo_file
+            save_name = algo_name + save_name_start + id_name + trial + save_name_end
+            env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name, reward_type=reward_type, timestep=0.1)
+            env.reset()
+            save_nameApath = save_path + save_name
+            model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu", seed=i)
+            model.learn(episodes * episode_length)
+            model.save(save_nameApath + ".zip")
+            time.sleep(0.25)
+            env.close()
+            time.sleep(0.25)
+            algo_name = "PPO"
+            algo_file = "PPO_seed" + str(i) + "/"
+            save_path = save_folder + folder_spes + algo_file
+            save_name = algo_name + save_name_start + id_name + trial + save_name_end
+            env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name, reward_type=reward_type, timestep=0.1)
+            env.reset()
+            save_nameApath = save_path + save_name
+            model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99, device="cpu", seed=i)
+            model.learn(episodes * episode_length)
+            model.save(save_nameApath + ".zip")
+            time.sleep(0.25)
+            env.close()
+            time.sleep(0.25)
+    """
 
     '''
     episodes = 512
@@ -1003,11 +1084,11 @@ def sb_train_variation():
         env.close()
         time.sleep(1)
     '''
-
-    '''
-    for i2 in range(10):
-        gamma = 0.9 + (i2/100)
-        folder_spes = "gamma/"
+    """
+    save_name_start = "DQN_1s_" + str(episodes) + "x" + str(episode_length) + "_"
+    for i2 in range(1,10):
+        gamma = 0.99 + round((i2/1000), 3)
+        folder_spes = "corrected_tests/DQN/gamma/"
         folder_spes += "gamma" + str(gamma) + "/"
         create_folder(save_folder + folder_spes)
         id_name = "gamma" + str(gamma)
@@ -1021,7 +1102,55 @@ def sb_train_variation():
         model.save(save_nameApath + ".zip")
         env.close()
         time.sleep(1)
+    gamma = 0.99
 
+    save_name_start = "A2C_1s_" + str(episodes) + "x" + str(episode_length) + "_"
+    episodes = 1024
+    episode_length = 1024
+    for i in [6, 7]:
+        n_step = i
+        folder_spes = "corrected_tests/A2C/learning_rate/"
+        folder_spes += "learning_rate" + str(n_step) + "/"
+        create_folder(save_folder + folder_spes)
+        id_name = "learning_rate" + str(n_step)
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name,
+                                reward_type=5, episode_length=episode_length)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=gamma, device="cpu", n_steps=i)
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        env.close()
+        time.sleep(1)
+    episodes = 512
+    episode_length = 2048
+
+    save_name_start = "A2C_1s_" + str(episodes) + "x" + str(episode_length) + "_"
+    episodes = 1024
+    episode_length = 1024
+    for i in [0.0006, 0.0007, 0.0009, 0.003, 0.006, 0.007, 0.009, 0.03, 0.06, 0.09, 0.3, 0.6]:
+        n_step = i
+        folder_spes = "corrected_tests/A2C/learning_rate/"
+        folder_spes += "learning_rate" + str(n_step) + "/"
+        create_folder(save_folder + folder_spes)
+        id_name = "learning_rate" + str(n_step)
+        save_path = save_folder + folder_spes
+        save_name = save_name_start + id_name + trial + save_name_end
+        env = CustomEnvironment(render=False, variation_training=True, var_save_path=save_path, var_save_name=save_name,
+                                reward_type=5, episode_length=episode_length)
+        env.reset()
+        save_nameApath = save_path + save_name
+        model = sb.A2C('MlpPolicy', env=env, verbose=1, gamma=gamma, device="cpu", learning_rate=i)
+        model.learn(episodes * episode_length)
+        model.save(save_nameApath + ".zip")
+        env.close()
+        time.sleep(1)
+    episodes = 512
+    episode_length = 2048
+"""
+    '''
     for i2 in range(16):
         lr = 0.00002 * ((i2%5)+1) * (10**(i2//5))
         folder_spes = "learning_rate/"
@@ -1038,6 +1167,7 @@ def sb_train_variation():
         model.save(save_nameApath + ".zip")
         env.close()
         time.sleep(1)
+    '''
     '''
     for i2 in [128, 256, 512, 1024]:
         folder_spes = "batch_size/"
@@ -1070,7 +1200,7 @@ def sb_train_variation():
         model.save(save_nameApath + ".zip")
         env.close()
         time.sleep(1)
-
+    '''
     '''
     for i2 in range(4,10):
         i = 2 ** i2
@@ -1147,21 +1277,34 @@ def sb_train():
 
 
 def sb_run_model():
-    env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
+    env = CustomEnvironment(episode_length=999999999, render=False, variation_training=True,
+                            var_save_path="data/flipped_actions/final_training/PPO/no_output_rewards/100minRun/",
+                            var_save_name="no_output_rewards_PPO_100min_results")  # True for display (creates the factory display window)
     env.reset()
-    # model = sb.PPO('MlpPolicy', env=env, verbose=1, gamma=0.99)
-    #model = sb.PPO.load("data/flipped_actions/PPO_tests/timestep/timestep1.0/PPO_1s_512x2048_timestep1.0_1_no_threading.zip", env=env, verbose=1, gamma=0.99)
-    model = sb.A2C.load("data/flipped_actions/A2C_tests/optimization/optimization_n_steps_and_lr/A2C_1s_1024x1024_optimization_learning_rate0.0002_n_steps17_1_no_threading.zip", env=env, verbose=1, gamma=0.99)
+
+    # best created Net (PPO)
+    # model = sb.PPO.load("data/flipped_actions/Old Nets/PPO_1s_64x2048_VERY_GOOD_MODEL_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    model = sb.PPO.load("data/flipped_actions/final_training/PPO/no_output_rewards/PPO_1s_512x2048_FINAL_no_output_rewards_1_no_threading.zip", env=env, verbose=1, gamma=0.99)
+
+    # model = sb.DQN.load("data/flipped_actions/final_training/DQN/DQN_1s_512x2048_FINAL_1_no_threading.zip",env=env, verbose=1, gamma=0.99)
+    # model = sb.A2C.load("data/flipped_actions/final_training/A2C/A2C_1s_512x2048_FINAL_1_no_threading.zip", env=env, verbose=1, gamma=0.99)
+    # model = sb.PPO.load("data/flipped_actions/final_training/PPO/PPO_1s_512x2048_FINAL_1_no_threading.zip", env=env, verbose=1, gamma=0.99)
+
 
     vec_env = model.get_env()
     obs = vec_env.reset()
-    while True:
+    run = True
+    while run:
+        env.reset()
         accu_reward = 0
-        for e in range(2048):
+        for e in range(6000):
             action, _states = model.predict(obs, deterministic=True)
             obs, reward, done, _, info = env.step(action)
             accu_reward += reward
         print("Episode",str(e+1),", reward sum: "+str(accu_reward))
+        run = False
+
+    env.close()
 
 
 
@@ -1187,25 +1330,23 @@ def custom_sb_train():
 
 
 def custom_train():
-    episodes = 46  # defines number of training episodes
-    save_interval = 4  # defines the saving rate (episodes)
-    max_steps = 2048  # defines episode lengths
-    #ml_agent.load("flipped_actions/Rainbow_RN_all64_at.size20__1s_64x2048_tr.freq.128__1.2_no_threading")
+    episodes = 200 # defines number of training episodes
+    repetitions = 1
+    save_interval = 50  # defines the saving interval in episodes
+    max_steps = 2048  # defines length of an episode
 
     highscore = -math.inf
-    save_folder = "flipped_actions/Rainbow_DQN/RainbowNetworkSmall/new_default_parameters"
-    create_folder("models/" + save_folder)
-    save_name_start = "RainbowNetworkSmall_1s_defaultParameters_" + str(episodes) + "x" + str(max_steps) + "_"
-    save_name_end = "episodes_trail3"
+    save_folder = "SAVE_FOLDER"
+    create_folder(save_folder)
+    save_name_start = "RainbowNetwork_SPECIFIC_NAME"
+    save_name_end = "SPECIFIC_DETAILS_IN_NAME"
     save_i = 1
 
-    env = CustomEnvironment(render=False, variation_training=True, var_save_path=("models/" + save_folder + "/"),
-                            var_save_name=(save_name_start + save_name_end), rainbow_algo=True)  # True for display (creates the factory display window)
-    # env.display_colors()
-    net = MachineLearning.RainbowNetwork.RainbowNetworkSmall
+    env = CustomEnvironment(render=False, rainbow_algo=True)
+    # env.display_colors()  # used for Displaying Factory (render must be set = True)
+    net = MachineLearning.RainbowNetwork.RainbowNetwork
     ml_agent = RainbowLearning(state_d=env.observation_space.shape[0], action_d=env.action_space.n, net=net)
-    #ml_agent.load("models/flipped_actions/Rainbow_DQN/RainbowNetworkSmall/default_parameters_updatefreq_256/RainbowNetworkSmall_1s_defaultParameters_8x2048_63episodes_trail3.pth")
-    repetitions = 1
+    # ml_agent.load("NET_NAME.pth")
     for e in range(episodes * repetitions):
         steps = 0
         state = env.reset()
@@ -1213,71 +1354,70 @@ def custom_train():
         ml_agent.set_state(state)
         done = False
         accu_reward = 0
-        # actions = []                                                    # for monitoring
-        # rewards = []                                                    # for monitoring
+        # actions = []     # for monitoring
+        # rewards = []     # for monitoring
         ep_start_time = time.time()
         while not done:
             steps += 1
-            print("steps:",steps)
             env.step_start_time = time.time()
             action_index = ml_agent.get_action_without_state()
             new_state, reward, done, _, info = env.step(action_index)
-            # actions.append(action_index)                                # for monitoring
-            if steps >= max_steps:  # should rather be in env.step()?
+            # actions.append(action_index)      # for monitoring
+            if steps >= max_steps:  # check whether episode end is reached
                 done = True
-                #print(e)
-                print("Produced products:", str(env.end_product_count))
-                env.reset()  # env reset required when terminating(?)
+                env.reset()
                 env.step_counter = 0
 
             ml_agent.add_memory_data(new_state, reward, done)
             accu_reward += reward
-            # rewards.append(reward)                                      # for monitoring
+            # rewards.append(reward)            # for monitoring
 
             ml_agent.train()
 
-        #ml_agent.train()
         sys.stdout.write(
-            "\r" + "Epoch: " + str(e + 1) + " Score: " + str(accu_reward) + " last steps: " + str(steps) +
-            " fps: " + str(max_steps / (time.time() - ep_start_time)) + "\n")
+            "\r" + "Epoch: " + str(e + 1) + " Score: " + str(accu_reward) + " For last " + str(steps) + " steps: fps: "
+            + str(max_steps / (time.time() - ep_start_time)) + "\n")
 
-        # print(actions)                                                  # for monitoring
-        # print(rewards)                                                  # for monitoring
+        # print(actions)        # for monitoring
+        # print(rewards)        # for monitoring
         if e % save_interval == save_interval - 1:
-            ml_agent.save(save_folder + "/" + save_name_start + str(e)+"episodes" + save_name_end)
+            ml_agent.save(save_folder + save_name_start + str(e+1)+"episodes" + save_name_end)
             print("Model saved")
             time.sleep(0.1)
             save_i += 1
-
-            #reset plotting arrays
-            # env.end_product_count = []
-            # env.reward_history = []
-
+            #reset plotting arrays          # for monitoring
+            # env.end_product_count = []    # for monitoring
+            # env.reward_history = []       # for monitoring
 
         if accu_reward > highscore:  # save the NN that achieved the highest score
             ml_agent.save(save_folder + save_name_start + "__Highscore")
             print("highscore: " + str(accu_reward))
             highscore = accu_reward
 
+    ml_agent.save(save_folder + save_name_start + str(e + 1) + "episodes" + save_name_end)
+    print("Model saved")
+    time.sleep(0.1)
     env.close()
 
 
 def custom_run_model():  # TODO
-    env = CustomEnvironment(render=True)  # True for display (creates the factory display window)
-    env.display_colors()
-    net = MachineLearning.RainbowNetwork.RainbowNetworkSmall
+    env = CustomEnvironment(episode_length=6000, render=False, variation_training=True,
+                            var_save_path="models/flipped_actions/Rainbow_DQN/RainbowNetworkMedium/FINAL_Training_1/100minRun/",
+                            var_save_name="SmallRainbowDQN_from_training1_100min_results")  # True for display (creates the factory display window)
+    # env.display_colors()
+    net = MachineLearning.RainbowNetwork.RainbowNetworkMid
     ml_agent = RainbowLearning(state_d=env.observation_space.shape[0], action_d=env.action_space.n, net=net, std_init=0)
-    ml_agent.load("models/flipped_actions/Rainbow_DQN/RainbowNetworkSmall/default_parameters_updatefreq_256/RainbowNetworkSmall_1s_defaultParameters_8x2048_63episodes_trail3.pth")
+    ml_agent.load("models/flipped_actions/Rainbow_DQN/RainbowNetworkMedium/FINAL_Training_1/RainbowNetworkMedium_1s_1221x2048FINAL_RbSmall_1_learning_rate0.00075_memory_size65536_target_update2048_std_init0.1_1221episodes_trail1.pth")
+    ml_agent.is_in_pretrain_mode = False
 
-
-    state = env.reset()
-    state = state[0]  # ??
-    ml_agent.set_state(state)
-    while True:
+    state, info = env.reset()
+    terminated, truncated = False, False
+    while not terminated and not truncated:
         env.step_start_time = time.time()
-        action_index = ml_agent.get_action_without_state()
-        new_state, reward, done, _, info = env.step(action_index)
-        ml_agent.add_memory_data(new_state, reward, done)
+        action = ml_agent.get_action(state)
+        #print(action)
+        state, _, terminated, truncated, info = env.step(action)
+        # ml_agent.reset_noise()
     env.close()
 
 
@@ -1361,24 +1501,27 @@ def extract_collected_data():
     end_name_prod = "_1_no_threading_end_product_counts.npy"
     end_name_rew = "_1_no_threading_reward_history.npy"
     end_name_reset = "_1_no_threading_restart_history.npy"
-    for a in range(3):
+    for a in range(1):
         # Load the .npy file
+        """
         assist_array = ["",
                         "_seed2466",
                         "_seed8296"]
         s = assist_array[a]
+        """
         '''
         if s in [0.3, 0.03, 0.6, 0.09]:
             print("SKIP",s)
             time.sleep(5)
             continue
         '''
-        np_array = np.load("data/flipped_actions/A2C_tests/learning_rate/learning_rate0.0003_2/A2C_1s_1024x1024_learning_rate0.0003"+s+"_2_no_threading_end_product_counts.npy")# folder_start + name_start + str(s) + end_name_prod)
+        s = "0.6"
+        np_array = np.load("data/flipped_actions/A2C_tests/learning_rate/learning_rate"+s+"/A2C_1s_1024x1024_learning_rate"+s+"_1_no_threading_end_product_counts.npy")# folder_start + name_start + str(s) + end_name_prod)
         reset_np_array = np.load("data/flipped_actions/A2C_tests/learning_rate/learning_rate0.0003_2/A2C_1s_1024x1024_learning_rate0.0003"+s+"_2_no_threading_restart_history.npy")    # folder_start + name_start + str(s) + end_name_reset)
 
-        excel_file_name = 'A2C_tests_learning_rate/learning_rate0.0003_2'+str(s)+'.xlsx'
+        excel_file_name = 'A2C_tests_learning_rate/learning_rate'+str(s)+'.xlsx'
         # extract reward in each timestep to excel sheet
-        reward_np_array = np.load("data/flipped_actions/A2C_tests/learning_rate/learning_rate0.0003_2/A2C_1s_1024x1024_learning_rate0.0003"+s+"_2_no_threading_reward_history.npy") # folder_start + name_start + str(s) + end_name_rew)
+        reward_np_array = np.load("data/flipped_actions/A2C_tests/learning_rate/learning_rate"+s+"/A2C_1s_1024x1024_learning_rate"+s+"_1_no_threading_reward_history.npy") # folder_start + name_start + str(s) + end_name_rew)
 
         # Define the maximum number of rows per sheet
         max_rows_per_sheet = 1048575
@@ -1422,7 +1565,7 @@ def extract_collected_data():
         normal_array = np_array.tolist()
         reset_array = reset_np_array.tolist()
 
-
+        """
         # extract value at end of time step (e. g. end product count)
         for i in range(len(reset_array)-1):
             if reset_array[i]:
@@ -1432,8 +1575,8 @@ def extract_collected_data():
         print(normal_array[-1])
     
         # print(max(normal_array))
+        """
 
-        '''
         # old end product extraction
         for i in range(1,1024):
             print(normal_array[i*1025-2])
@@ -1447,7 +1590,7 @@ def extract_collected_data():
             #print(i)
         print()
         print("gamma",s)
-        
+        '''
         # for tests with >2048 condition
         for i in range(179*2049-5,179*2049+5):
             end_prod = normal_array[i]
@@ -1495,7 +1638,7 @@ if __name__ == '__main__':
     '''
 
     # sb_train()
-    # sb_train_variation()
+    sb_train_variation()
     # sb_run_model()
     # custom_sb_train()
 
@@ -1504,22 +1647,66 @@ if __name__ == '__main__':
     # test()
     # test2()
 
-    # extract_collected_data()
-    '''
-    np_array = np.load("data/flipped_actions/DQN_tests/target_update_interval/target_update_interval50000/DQN_1s_512x2048_target_update_interval50000_1_no_threading_end_product_counts.npy")  # folder_start + name_start + str(s) + end_name_prod)
-    reset_np_array = np.load("data/flipped_actions/DQN_tests/target_update_interval/target_update_interval50000/DQN_1s_512x2048_target_update_interval50000_1_no_threading_restart_history.npy")  # folder_start + name_start + str(s) + end_name_reset)
-    reward_np_array = np.load("data/flipped_actions/DQN_tests/target_update_interval/target_update_interval50000/DQN_1s_512x2048_target_update_interval50000_1_no_threading_reward_history.npy")  # folder_start + name_start + str(s) + end_name_rew)
+    #
+    extract_collected_data()
+    """
+    #np_array = np.load("models/flipped_actions/Rainbow_DQN/RainbowNetworkMedium/FINAL_Training_1/100minRun/SmallRainbowDQN_from_training1_100min_results_machine_status_history.npy")
+    np_array = np.load("models/flipped_actions/Rainbow_DQN/RainbowNetworkSmall/FINAL_Training_1/RainbowNetworkSmall_1s_1221x2048FINAL_RbSmall_1_learning_rate0.00075_memory_size65536_target_update2048_std_init0.1_episodes_trail1_machine_status_history.npy")  # folder_start + name_start + str(s) + end_name_prod)
+    reset_np_array = np.load("models/flipped_actions/Rainbow_DQN/RainbowNetworkSmall/FINAL_Training_1/RainbowNetworkSmall_1s_1221x2048FINAL_RbSmall_1_learning_rate0.00075_memory_size65536_target_update2048_std_init0.1_episodes_trail1_restart_history.npy")  # folder_start + name_start + str(s) + end_name_reset)
+    reward_np_array = np.load("models/flipped_actions/Rainbow_DQN/RainbowNetworkSmall/FINAL_Training_1/RainbowNetworkSmall_1s_1221x2048FINAL_RbSmall_1_learning_rate0.00075_memory_size65536_target_update2048_std_init0.1_episodes_trail1_reward_history.npy")  # folder_start + name_start + str(s) + end_name_rew)
 
     normal_array = np_array.tolist()
     reset_array = reset_np_array.tolist()
     reward_array = reward_np_array.tolist()
 
-    prod = True
+    # extract value at end of time step (e. g. end product count)
+    episode = 0
+    for i in range(1218, len(reset_array)):
+        if reset_array[i]:
+            episode += 1
+            # print(i)
+            if episode == 1219:
+                runp = True
+                j = i+1
+                while runp:
+                    if reset_array[j]:
+                        runp = False
+                    i = normal_array[0][j]
+                    if i == "process":
+                        print(1)
+                    elif i == "idle":
+                        print(0)
+                    elif i == "blocked":
+                        print(2)
+                    else:
+                        print("Mistake")
+                        break
+                    j += 1
+    """
+    """
+    for i in normal_array[2]:
+        if isinstance(i, int):
+            print(i)
+        else:
+            if i == "process":
+                print(1)
+            elif i == "idle":
+                print(0)
+            elif i == "blocked":
+                print(2)
+            else:
+                print("Mistake")
+                break
+
+    """
+
+    """
+    prod = False
     if prod:
         # extract value at end of time step (e. g. end product count)
         for i in range(len(reset_array)):
             if reset_array[i]:
-                # print(i)
+                #print(i)
                 print(normal_array[i])
                 if i < len(normal_array)-1:
                     assert normal_array[i + 1] == 0, print(str(normal_array[i]) + ", " + str(normal_array[i + 1]))
@@ -1530,4 +1717,4 @@ if __name__ == '__main__':
             if reset_array[i]:
                 print(str(accu_rew).replace('.', ','))
                 accu_rew = 0
-    '''
+    """
